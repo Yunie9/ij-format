@@ -1,6 +1,6 @@
 # Privacy and local data
 
-[简体中文](zh-CN/PRIVACY.md) · [Documentation](README.md)
+[简体中文](zh-CN/PRIVACY.md) · [Documentation](../README.md)
 
 The ij-format plugin listens on `127.0.0.1` and requires a generated Bearer token. It formats submitted source and the selected line or column range in memory, inside the running IDE, and returns the result to the calling client. It does not read project source files for context, write the submitted source to disk, or contact a remote formatter. The plugin has no telemetry. IntelliJ IDEA and the MCP client have their own settings and policies.
 

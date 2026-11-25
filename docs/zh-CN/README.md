@@ -1,14 +1,38 @@
 # ij-format
 
-[English](../README.md)
+[English](../../README.md)
 
 复用本机 IntelliJ IDEA 的原生格式化引擎和全局代码风格，格式化 Java 或 Kotlin。终端可以使用 Go CLI，Agent 可以直接调用插件的本地 MCP 工具。两种方式都只需要源代码，IDEA 停在欢迎页也可以使用。
 
 ## 安装并连接
 
-1. 从本仓库的 **Releases** 页面下载 `ij-format-mcp-0.3.0.zip`。在 IDEA 的 **Settings → Plugins → ⚙ → Install Plugin from Disk** 中选中 ZIP，按提示重启。已验证 IntelliJ IDEA 2026.1.1，构建号 `IU-261.23567.138`。使用 Kotlin 格式化需要启用 IDEA 的 Kotlin 支持。 [IDEA 安装说明](https://www.jetbrains.com/help/idea/managing-plugins.html#install_plugin_from_disk)
+1. 下载插件 ZIP。在 IDEA 的 **Settings → Plugins → ⚙ → Install Plugin from Disk** 中选择该 ZIP，按提示重启。已验证 IntelliJ IDEA 2026.1.1，构建号 `IU-261.23567.138`。格式化 Kotlin 需要启用 IDEA 的 Kotlin 支持。 [下载插件 ZIP](https://github.com/Yunie9/ij-format/releases/download/v0.3.0/ij-format-mcp-0.3.0.zip) · [IDEA 安装说明](https://www.jetbrains.com/help/idea/managing-plugins.html#install_plugin_from_disk)
 2. 打开 **Settings → Tools → ij-format**，确认状态显示 **Running**。服务启动后，IDEA 停在欢迎页也能使用。
-3. **CLI** — 从 **Releases** 下载并解压对应系统和架构的 CLI 包，再把 `ij-format`（Windows 为 `ij-format.exe`）加入 `PATH`。 [CLI 示例](#cli-用法)
+3. 在 macOS 或 Linux 上，以下命令会按 CPU 架构下载安装 CLI 到 `~/.local/bin`。将此目录加入 `PATH` 后即可直接运行 `ij-format`。Windows 用户请下载并解压对应架构的 ZIP，再把 `ij-format.exe` 所在目录加入 `PATH`。 [发布附件](https://github.com/Yunie9/ij-format/releases/tag/v0.3.0)
+
+   ```sh
+   (
+     set -eu
+     case "$(uname -s)" in
+       Darwin) os=darwin ;;
+       Linux) os=linux ;;
+       *) printf '%s\n' 'Use the Windows ZIP from GitHub Releases.' >&2; exit 1 ;;
+     esac
+     case "$(uname -m)" in
+       arm64|aarch64) arch=arm64 ;;
+       x86_64|amd64) arch=amd64 ;;
+       *) printf '%s\n' 'Unsupported CPU architecture.' >&2; exit 1 ;;
+     esac
+
+     tmp=$(mktemp -d)
+     trap 'rm -rf "$tmp"' EXIT
+     curl -fL "https://github.com/Yunie9/ij-format/releases/download/v0.3.0/ij-format-0.3.0-${os}-${arch}.zip" -o "$tmp/cli.zip"
+     unzip -p "$tmp/cli.zip" ij-format > "$tmp/ij-format"
+     mkdir -p "$HOME/.local/bin"
+     install -m 755 "$tmp/ij-format" "$HOME/.local/bin/ij-format"
+   )
+   ```
+
 4. **MCP 客户端** — 点击 **Copy MCP JSON**，把 `mcpServers.ij-format` 合并到兼容客户端，或使用其中的 `url` 和 `headers.Authorization` 手动配置 Streamable HTTP。
 
 ## CLI 用法
@@ -36,7 +60,7 @@ ij-format Main.java Example.kt --whole-file --check
 
 ## 工具参数和行为
 
-`ij_format_lines` 接受 `language`、`source` 和范围参数。按行时传 `startLine` 和 `endLine`，按列时传 `range`。 [调用示例](../README.md#mcp-tool)
+`ij_format_lines` 接受 `language`、`source` 和范围参数。按行时传 `startLine` 和 `endLine`，按列时传 `range`。 [调用示例](../../README.md#mcp-tool)
 
 - 支持 `java` 和 `kotlin`，行范围从 1 开始并包含首尾。0.3.0 可以用 `range` 按行列定义精确范围，结束位置不包含在选区内。输入上限 128 KiB，保留一致的 LF 或 CRLF。 [CLI 坐标规则](CLI.md)
 - 运行时使用 IDEA 的全局代码风格，即使打开项目也独立处理输入的源码。项目代码风格、EditorConfig、SDK 和 Classpath 不参与格式化。

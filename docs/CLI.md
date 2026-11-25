@@ -1,6 +1,6 @@
 # ij-format CLI
 
-[简体中文](zh-CN/CLI.md) · [Documentation](README.md)
+[简体中文](zh-CN/CLI.md) · [Documentation](../README.md)
 
 The CLI uses the running IDEA plugin's Streamable HTTP endpoint. It reads UTF-8 source locally and sends the source, language, and selection. Use plugin 0.3.0 for exact column ranges. Line and whole-file formatting also work with plugin 0.2.0.
 

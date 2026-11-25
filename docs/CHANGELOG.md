@@ -1,6 +1,6 @@
 # Changelog
 
-[简体中文](zh-CN/CHANGELOG.md) · [Documentation](README.md)
+[简体中文](zh-CN/CHANGELOG.md) · [Documentation](../README.md)
 
 ## 0.3.0
 

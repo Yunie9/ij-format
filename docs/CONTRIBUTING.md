@@ -1,6 +1,6 @@
 # Contributing
 
-[简体中文](zh-CN/CONTRIBUTING.md) · [Documentation](README.md)
+[简体中文](zh-CN/CONTRIBUTING.md) · [Documentation](../README.md)
 
 ## Repository layout
 
