@@ -18,7 +18,14 @@ import java.util.function.Consumer
 internal object IdeaFormatter {
     private const val MAX_SOURCE_BYTES = 128 * 1024
 
-    suspend fun format(language: String, source: String, startLine: Int, endLine: Int): String {
+    suspend fun format(
+        language: String,
+        source: String,
+        startLine: Int,
+        endLine: Int,
+        startColumn: Int?,
+        endColumn: Int?,
+    ): String {
         val name = when (language) {
             "java" -> "Input.java"
             "kotlin" -> "Input.kt"
@@ -34,7 +41,15 @@ internal object IdeaFormatter {
             "Expected uniform LF or CRLF line endings"
         }
         val text = if (crlf) source.replace("\r\n", "\n") else source
-        val range = lineRange(text, startLine, endLine)
+        val exact = startColumn != null && endColumn != null
+        val range = if (startColumn != null && endColumn != null) {
+            val start = positionOffset(text, startLine, startColumn)
+            val end = positionOffset(text, endLine, endColumn)
+            require(start < end) { "Expected the range start to precede its exclusive end" }
+            TextRange(start, end)
+        } else {
+            lineRange(text, startLine, endLine)
+        }
 
         val formatted = withContext(Dispatchers.EDT + ModalityState.nonModal().asContextElement()) {
             val project = ProjectManager.getInstance().defaultProject
@@ -57,9 +72,23 @@ internal object IdeaFormatter {
         val after = text.substring(range.endOffset)
         require(formatted.length >= before.length + after.length &&
             formatted.startsWith(before) && formatted.endsWith(after)) {
-            "IntelliJ would change text outside the selected lines"
+            if (exact) "IntelliJ would change text outside the selected range"
+            else "IntelliJ would change text outside the selected lines"
         }
         return if (crlf) formatted.replace("\n", "\r\n") else formatted
+    }
+
+    private fun positionOffset(text: String, line: Int, column: Int): Int {
+        require(line >= 1 && column >= 1) { "Expected a 1-based line and column" }
+        var start = 0
+        for (previous in 1 until line) {
+            val newline = text.indexOf('\n', start)
+            require(newline >= 0) { "Line $line exceeds source" }
+            start = newline + 1
+        }
+        val end = text.indexOf('\n', start).takeIf { it >= 0 } ?: text.length
+        require(column - 1 <= text.codePointCount(start, end)) { "Column $column exceeds line $line" }
+        return text.offsetByCodePoints(start, column - 1)
     }
 
     private fun lineRange(text: String, first: Int, last: Int): TextRange {

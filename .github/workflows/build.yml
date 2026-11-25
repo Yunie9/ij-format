@@ -1,14 +1,47 @@
 name: Build and verify
 
-on: [push, pull_request]
+on: [push, pull_request, workflow_dispatch]
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  cli:
+    name: CLI (${{ matrix.os }}, Go ${{ matrix.go-version }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        go-version: [stable]
+        include:
+          - os: ubuntu-latest
+            go-version: '1.22.x'
+    defaults:
+      run:
+        working-directory: cli
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache-dependency-path: cli/go.sum
+      - run: go vet ./...
+      - run: go test ./...
+      - run: go build ./...
+
   plugin:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: idea-plugin
     steps:
       - uses: actions/checkout@v6
         with:
@@ -19,4 +52,150 @@ jobs:
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v6
       - name: Build plugin and run compatibility checks
-        run: ./gradlew :idea-plugin:buildPlugin :idea-plugin:compileTestJava :idea-plugin:verifyPlugin
+        run: ./gradlew buildPlugin compileTestJava verifyPlugin
+      - name: Upload Plugin Verifier reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: plugin-verifier-reports
+          path: idea-plugin/build/reports/pluginVerifier/
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload verified plugin ZIP
+        uses: actions/upload-artifact@v7
+        with:
+          name: idea-plugin
+          path: idea-plugin/build/distributions/ij-format-mcp-*.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  package-cli:
+    name: Package release CLI
+    if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
+    needs: cli
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+          cache-dependency-path: cli/go.sum
+      - name: Build release archives
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+          CGO_ENABLED: '0'
+        run: |
+          if [[ ! "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Expected a release tag in vMAJOR.MINOR.PATCH form, got $TAG" >&2
+            exit 1
+          fi
+          version="${TAG#v}"
+          plugin_version=$(sed -n 's/^pluginVersion=//p' idea-plugin/gradle.properties)
+          if [[ "$plugin_version" != "$version" ]]; then
+            echo "Tag $TAG does not match pluginVersion=$plugin_version" >&2
+            exit 1
+          fi
+
+          archives="$RUNNER_TEMP/release-cli"
+          staging=$(mktemp -d)
+          trap 'rm -rf "$staging"' EXIT
+          mkdir -p "$archives"
+          go_root=$(go env GOROOT)
+          go_license="$go_root/LICENSE"
+          if [[ ! -f "$go_license" ]]; then go_license="$(dirname "$go_root")/LICENSE"; fi
+          cp LICENSE NOTICE cli/LICENSE-go-diff cli/LICENSE-diff-match-patch "$staging/"
+          cp "$go_license" "$staging/LICENSE-Go"
+          cp "$go_root/PATENTS" "$staging/PATENTS-Go"
+
+          for target_os in darwin linux windows; do
+            executable=ij-format
+            if [[ "$target_os" == windows ]]; then executable=ij-format.exe; fi
+            for target_arch in amd64 arm64; do
+              GOOS="$target_os" GOARCH="$target_arch" go -C cli build -trimpath \
+                -ldflags="-s -w -X main.cliVersion=$version" -o "$staging/$executable" .
+              zip -q -j "$archives/ij-format-$version-$target_os-$target_arch.zip" \
+                "$staging/$executable" "$staging"/LICENSE* "$staging/NOTICE" "$staging/PATENTS-Go"
+            done
+          done
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-cli
+          path: ${{ runner.temp }}/release-cli/*.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  draft-release:
+    name: Create GitHub Release draft
+    needs: [plugin, package-cli]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: idea-plugin
+          path: release-assets
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-cli
+          path: release-assets
+      - name: Verify attachments and prepare release notes
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#v}"
+          archives=("ij-format-mcp-$version.zip")
+          for target_os in darwin linux windows; do
+            for target_arch in amd64 arm64; do
+              archives+=("ij-format-$version-$target_os-$target_arch.zip")
+            done
+          done
+          (
+            cd release-assets
+            shopt -s nullglob
+            downloaded=(*.zip)
+            if (( ${#downloaded[@]} != ${#archives[@]} )); then
+              echo "Expected exactly ${#archives[@]} release ZIPs" >&2
+              exit 1
+            fi
+            for archive in "${archives[@]}"; do
+              unzip -tq "$archive"
+            done
+            sha256sum "${archives[@]}" > SHA256SUMS
+            sha256sum --check SHA256SUMS
+          )
+
+          notes="$RUNNER_TEMP/release-notes.md"
+          awk -v heading="## $version" '
+            $0 == heading { in_release = 1; next }
+            in_release && /^## / { exit }
+            in_release { print }
+          ' docs/CHANGELOG.md > "$notes"
+          if ! grep -q '[^[:space:]]' "$notes"; then
+            echo "Missing changelog entry for $version" >&2
+            exit 1
+          fi
+          printf '\n[Quick start](https://github.com/%s/blob/%s/README.md) · [简体中文](https://github.com/%s/blob/%s/docs/zh-CN/README.md)\n' \
+            "$GITHUB_REPOSITORY" "$TAG" "$GITHUB_REPOSITORY" "$TAG" >> "$notes"
+      - name: Upload attachments to a GitHub Release draft
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url 2>/dev/null; then
+            echo "A release already exists for $TAG. Review it on GitHub before retrying." >&2
+            exit 1
+          fi
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft \
+            --title "$TAG" --notes-file "$RUNNER_TEMP/release-notes.md" \
+            release-assets/*.zip release-assets/SHA256SUMS

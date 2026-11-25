@@ -28,19 +28,42 @@ import java.nio.file.attribute.PosixFilePermissions
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Base64
-import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 
 @Service(Service.Level.APP)
 class LocalMcpServer(private val scope: CoroutineScope) : Disposable {
-    private var server: HttpServer? = null
-    @Volatile
-    internal var connection: McpConnection? = null
-        private set
-    private val workers = ThreadPoolExecutor(2, 2, 0, TimeUnit.SECONDS, ArrayBlockingQueue(8)) { task ->
-        Thread(task, "ij-format MCP HTTP").apply { isDaemon = true }
+    private class RunningServer(
+        val endpoint: HttpServer,
+        val workers: ThreadPoolExecutor,
+        private val queue: ResizableTaskQueue,
+        initialLimits: WorkerLimits,
+        val connection: McpConnection,
+    ) {
+        @Volatile
+        var limits = initialLimits
+            private set
+
+        fun updateLimits(next: WorkerLimits) {
+            if (next == limits) return
+            queue.resize(next.queueCapacity)
+            // The JDK requires corePoolSize <= maximumPoolSize at each setter.
+            if (next.maxWorkers > workers.maximumPoolSize) {
+                workers.maximumPoolSize = next.maxWorkers
+                workers.corePoolSize = next.minWorkers
+            } else {
+                workers.corePoolSize = next.minWorkers
+                workers.maximumPoolSize = next.maxWorkers
+            }
+            limits = next
+        }
     }
+
+    @Volatile
+    private var running: RunningServer? = null
+    private var disposed = false
+    internal val connection: McpConnection? get() = running?.connection
+    internal val activeWorkerLimits: WorkerLimits? get() = running?.limits
 
     internal fun scheduleStartup() {
         scope.launch(Dispatchers.IO) {
@@ -56,24 +79,40 @@ class LocalMcpServer(private val scope: CoroutineScope) : Disposable {
 
     @Synchronized
     private fun startIfEnabled() {
-        if (!workers.isShutdown && service<McpSettings>().state.enabled) start()
+        val settings = service<McpSettings>().state
+        if (!disposed && settings.enabled) start(settings.workerLimits())
     }
 
     @Synchronized
-    internal fun setEnabled(enabled: Boolean) {
-        if (enabled) start() else stop()
-        service<McpSettings>().state.enabled = enabled
+    internal fun configure(enabled: Boolean, limits: WorkerLimits) {
+        check(!disposed)
+        limits.validate()
+        if (enabled) {
+            val active = running
+            if (active == null) start(limits) else active.updateLimits(limits)
+        } else {
+            stop()
+        }
+        val settings = service<McpSettings>().state
+        settings.setWorkerLimits(limits)
+        settings.enabled = enabled
     }
 
-    private fun start() {
-        if (server != null) return
+    private fun start(limits: WorkerLimits) {
+        if (running != null) return
+        limits.validate()
         val port = System.getProperty("ijformat.mcp.port", "49273").toIntOrNull()
         require(port != null && port in 0..65535) { "Invalid ijformat.mcp.port" }
         val endpoint = HttpServer.create(InetSocketAddress(InetAddress.getByName("127.0.0.1"), port), 8)
+        val queue = ResizableTaskQueue(limits.queueCapacity)
+        val workers = ThreadPoolExecutor(
+            limits.minWorkers, limits.maxWorkers, 30, TimeUnit.SECONDS,
+            queue,
+        ) { task -> Thread(task, "ij-format MCP HTTP").apply { isDaemon = true } }
         try {
             val host = "127.0.0.1:${endpoint.address.port}"
             val url = "http://$host/mcp"
-            val config = PathManager.getConfigDir().resolve("ij-format-mcp.json")
+            val config = connectionFile()
             val credentials = readOrCreateConnection(config, url)
             val authorization = credentials.headers.getValue("Authorization").toByteArray()
             endpoint.executor = workers
@@ -81,6 +120,8 @@ class LocalMcpServer(private val scope: CoroutineScope) : Disposable {
                 exchange.use {
                     try {
                         handle(exchange, host, authorization)
+                    } catch (_: InterruptedException) {
+                        Thread.currentThread().interrupt()
                     } catch (_: IOException) {
                         // A caller can disconnect while formatting or receiving its answer.
                     } catch (error: RuntimeException) {
@@ -90,25 +131,32 @@ class LocalMcpServer(private val scope: CoroutineScope) : Disposable {
                 }
             }
             endpoint.start()
-            server = endpoint
-            connection = credentials
-            LOG.info("ij-format MCP ready at $url; client configuration: $config")
+            running = RunningServer(endpoint, workers, queue, limits, credentials)
+            LOG.info("ij-format MCP ready at $url; ${limits.summary()}; client configuration: $config")
         } catch (error: Exception) {
-            endpoint.stop(0)
+            close(endpoint, workers)
             throw error
         }
     }
 
     private fun stop() {
-        server?.stop(0)
-        server = null
-        connection = null
+        val active = running ?: return
+        running = null
+        close(active.endpoint, active.workers)
+    }
+
+    private fun close(endpoint: HttpServer, workers: ThreadPoolExecutor) {
+        try {
+            endpoint.stop(0)
+        } finally {
+            workers.shutdownNow()
+        }
     }
 
     @Synchronized
     override fun dispose() {
+        disposed = true
         stop()
-        workers.shutdownNow()
     }
 
     private fun handle(exchange: HttpExchange, host: String, authorization: ByteArray) {
@@ -181,6 +229,8 @@ class LocalMcpServer(private val scope: CoroutineScope) : Disposable {
     }
 
     companion object {
+        internal fun connectionFile(): Path = PathManager.getConfigDir().resolve("ij-format-mcp.json")
+
         private const val MAX_HTTP_BODY = 1024 * 1024
         private val TOKEN_PATTERN = Regex("Bearer [A-Za-z0-9_-]{43}")
         private val LOG = Logger.getInstance(LocalMcpServer::class.java)

@@ -1,35 +1,32 @@
-# ij-format MCP
+# ij-format
 
-Format selected lines of Java or Kotlin through IntelliJ IDEA's native formatter. The plugin exposes one local MCP tool, `ij_format_lines`. It accepts source text and a line range, applies the current IDE-wide code style, and returns the complete result.
+Format Java and Kotlin with IntelliJ IDEA’s native formatter and your IDE-wide code style. The project provides a Go CLI and a local Streamable HTTP MCP server.
 
-[简体中文](docs/README.zh-CN.md) · [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md)
+[English documentation](docs/README.md) · [简体中文文档](docs/zh-CN/README.md)
 
-## Install and connect
+## Quick start
 
-1. [Build the plugin ZIP](CONTRIBUTING.md) and install it from **Settings → Plugins → ⚙ → Install Plugin from Disk**. The verified host is IntelliJ IDEA 2026.1.1, build `IU-261.23567.138`. Kotlin formatting requires IDEA's Kotlin support to be enabled.
-2. Open **Settings → Tools → ij-format MCP**. The service starts automatically when enabled, including at the Welcome screen. The setting applies immediately after you click **Apply**.
-3. Click **Copy MCP JSON** and merge the `mcpServers.ij-format` entry into a compatible client. For a client with a different configuration format, use the copied `url` and `headers.Authorization` with **Streamable HTTP**.
+1. Download `ij-format-mcp-0.3.0.zip` from **Releases**. In IDEA, select **Settings → Plugins → ⚙ → Install Plugin from Disk** and choose the ZIP. Restart IDEA if prompted.
+2. In **Settings → Tools → ij-format**, check that the server shows **Running**. The service works from the Welcome screen or an open project.
+3. For terminal use, download the CLI archive for your OS and CPU from **Releases**, extract it, and put `ij-format` on your `PATH`. The Windows executable is `ij-format.exe`.
+4. For an MCP client, click **Copy MCP JSON** and configure the client with the copied `mcpServers.ij-format` entry.
 
-The default endpoint is `http://127.0.0.1:49273/mcp`. An IDEA instance can use a different port by setting `-Dijformat.mcp.port=49274` in its VM options. Only the loopback interface is used, and the JSON contains a local access token. [Privacy and local data](docs/PRIVACY.md)
+## CLI usage
 
-## MCP tool
-
-```json
-{
-  "language": "java",
-  "source": "class Demo {\n  void run(){int x=1;}\n}\n",
-  "startLine": 2,
-  "endLine": 2
-}
+```sh
+ij-format status
+ij-format Main.java --lines 12:38 --diff
+ij-format Example.kt --range 12:5-14:18 --write
+ij-format - --language kotlin --lines 2:6 < Example.kt
+ij-format Main.java Example.kt --whole-file --check
 ```
 
-- `language` is `java` or `kotlin`. Line numbers are 1-based and inclusive.
-- Requests accept up to 128 KiB of UTF-8 source. Uniform LF or CRLF line endings are preserved.
-- The formatter uses the current IDE-wide scheme, even while a project is open. It works from the supplied source text without project-level code style, EditorConfig, SDK, or classpath.
-- The result is the complete formatted source as MCP text content. If IDEA would change text outside the requested lines, the tool returns an error. Widen the range and retry when appropriate.
-- Supported MCP protocol versions are `2025-11-25`, `2025-06-18`, and `2025-03-26`.
+IDEA 2026.1.1 is the verified host. The CLI guide explains range rules, exit codes, and selecting an IDEA profile with `--config`. [English CLI guide](docs/CLI.md) · [中文 CLI 指南](docs/zh-CN/CLI.md)
 
+## Documentation
+
+[Contributing](docs/CONTRIBUTING.md) · [Changelog](docs/CHANGELOG.md) · [Privacy](docs/PRIVACY.md)
 
 ## License
 
-The original project code and documentation are licensed under the [Apache License, Version 2.0](LICENSE). See the [project notice](NOTICE) and [third-party notices](THIRD_PARTY_NOTICES.md).
+[Apache License 2.0](LICENSE) · [NOTICE](NOTICE) · [Third-party notices](docs/THIRD_PARTY_NOTICES.md)

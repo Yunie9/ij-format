@@ -12,11 +12,14 @@ import kotlinx.coroutines.withTimeout
 internal object McpProtocol {
     private val gson = Gson()
     private val versions = listOf("2025-11-25", "2025-06-18", "2025-03-26")
+    private val pluginVersion by lazy {
+        checkNotNull(McpProtocol::class.java.getResource("/META-INF/ij-format-version.txt")).readText().trim()
+    }
     private val tool = JsonParser.parseString(
         """
         {
           "name": "ij_format_lines",
-          "description": "Format selected lines of complete Java or Kotlin source using the current global IDEA code style. Returns the complete text. No project or path is used. Fails if an edit would cross the selected lines.",
+          "description": "Format selected lines or an exact range of complete Java or Kotlin source using the current global IDEA code style. Returns the complete text. No project or path is used. Fails if an edit would cross the selection.",
           "annotations": {"readOnlyHint": true, "destructiveHint": false, "openWorldHint": false},
           "inputSchema": {
             "type": "object",
@@ -24,9 +27,25 @@ internal object McpProtocol {
               "language": {"type": "string", "enum": ["java", "kotlin"]},
               "source": {"type": "string", "description": "Complete source text, up to 128 KiB of UTF-8."},
               "startLine": {"type": "integer", "minimum": 1, "description": "First line, inclusive and 1-based."},
-              "endLine": {"type": "integer", "minimum": 1, "description": "Last line, inclusive and 1-based."}
+              "endLine": {"type": "integer", "minimum": 1, "description": "Last line, inclusive and 1-based."},
+              "range": {
+                "type": "object",
+                "description": "Exact range with an inclusive start and an exclusive end. Lines and columns are 1-based. Each Unicode code point, including a tab, counts as one column.",
+                "properties": {
+                  "startLine": {"type": "integer", "minimum": 1},
+                  "startColumn": {"type": "integer", "minimum": 1},
+                  "endLine": {"type": "integer", "minimum": 1},
+                  "endColumn": {"type": "integer", "minimum": 1}
+                },
+                "required": ["startLine", "startColumn", "endLine", "endColumn"],
+                "additionalProperties": false
+              }
             },
-            "required": ["language", "source", "startLine", "endLine"],
+            "required": ["language", "source"],
+            "oneOf": [
+              {"required": ["startLine", "endLine"], "not": {"required": ["range"]}},
+              {"required": ["range"], "not": {"anyOf": [{"required": ["startLine"]}, {"required": ["endLine"]}]}}
+            ],
             "additionalProperties": false
           }
         }
@@ -67,7 +86,7 @@ internal object McpProtocol {
                 return result(id, mapOf(
                     "protocolVersion" to if (requested in versions) requested else versions.first(),
                     "capabilities" to mapOf("tools" to emptyMap<String, Any>()),
-                    "serverInfo" to mapOf("name" to "ij-format", "version" to "0.2.0"),
+                    "serverInfo" to mapOf("name" to "ij-format", "version" to pluginVersion),
                 ))
             }
             "ping" -> return result(id, emptyMap<String, Any>())
@@ -78,15 +97,29 @@ internal object McpProtocol {
                 val arguments = call.get("arguments")
                 if (arguments == null || !arguments.isJsonObject) return error(id, -32602, "Expected arguments")
                 val args = arguments.asJsonObject
-                if (args.keySet() != setOf("language", "source", "startLine", "endLine")) {
-                    return error(id, -32602, "Expected language, source, startLine and endLine")
+                val exactRange = args.has("range")
+                val endpoints = if (exactRange && args.keySet() == setOf("language", "source", "range")) {
+                    args.get("range").takeIf { it.isJsonObject }?.asJsonObject
+                        ?.takeIf { it.keySet() == setOf("startLine", "startColumn", "endLine", "endColumn") }
+                        ?: return error(id, -32602, "Expected range with startLine, startColumn, endLine and endColumn")
+                } else if (!exactRange && args.keySet() == setOf("language", "source", "startLine", "endLine")) {
+                    args
+                } else {
+                    return error(id, -32602, "Expected language, source and either startLine/endLine or range")
                 }
                 val language = args.string("language") ?: return error(id, -32602, "Expected language string")
                 val source = args.string("source") ?: return error(id, -32602, "Expected source string")
-                val start = args.integer("startLine") ?: return error(id, -32602, "Expected integer startLine")
-                val end = args.integer("endLine") ?: return error(id, -32602, "Expected integer endLine")
+                val start = endpoints.integer("startLine") ?: return error(id, -32602, "Expected integer startLine")
+                val end = endpoints.integer("endLine") ?: return error(id, -32602, "Expected integer endLine")
+                val startColumn = if (exactRange) endpoints.integer("startColumn")
+                    ?: return error(id, -32602, "Expected integer startColumn") else null
+                val endColumn = if (exactRange) endpoints.integer("endColumn")
+                    ?: return error(id, -32602, "Expected integer endColumn") else null
                 val answer = try {
-                    toolResult(withTimeout(15_000) { IdeaFormatter.format(language, source, start, end) }, false)
+                    val formatted = withTimeout(15_000) {
+                        IdeaFormatter.format(language, source, start, end, startColumn, endColumn)
+                    }
+                    toolResult(formatted, false)
                 } catch (failure: IllegalArgumentException) {
                     toolResult(failure.message ?: "Invalid formatting request", true)
                 } catch (_: TimeoutCancellationException) {

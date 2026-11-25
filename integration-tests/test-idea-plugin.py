@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Exercise the packaged HTTP plugin in isolated IDEA directories."""
 import argparse
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack
+from http.client import HTTPConnection
 import json
 import os
 from pathlib import Path
@@ -9,6 +10,7 @@ import subprocess
 import tempfile
 import time
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 from zipfile import ZipFile
 
@@ -17,7 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def default_archive():
     version = next(line.removeprefix("pluginVersion=") for line in
-                   (ROOT / "gradle.properties").read_text().splitlines() if line.startswith("pluginVersion="))
+                   (ROOT / "idea-plugin/gradle.properties").read_text().splitlines() if line.startswith("pluginVersion="))
     return ROOT / f"idea-plugin/build/distributions/ij-format-mcp-{version}.zip"
 
 
@@ -77,6 +79,9 @@ def launch_args(idea, state, *, welcome=False, project_first=False):
     args = []
     if welcome:
         settings.append("-Djb.consents.confirmation.enabled=false")
+        if project_first:
+            settings.append("-Dide.experimental.ui.onboarding=false")
+            args.append(str(state / "project"))
     else:
         settings.extend(("-Djava.awt.headless=true", "-Didea.suppress.first.window=true"))
         args.extend(("ij-format-verify", str(state)))
@@ -176,7 +181,57 @@ def run_idea(idea, log_path, plugin_archive, **launch_mode):
                         worker.wait()
 
 
-def test(idea, out, plugin_archive):
+def verify_live_limits(state, worker, log_path, client):
+    config = state / "config/ij-format-mcp.json"
+    connection_file = config.read_bytes()
+    persisted = state / "config/options/ij-format-mcp.xml"
+    address = urlsplit(client.url)
+    requests = []
+    (state / "occupy-workers").touch()
+    wait_for(worker, log_path, "TEST_MCP_EDT_HELD")
+    with ExitStack() as stack:
+        for request_id in range(1, 8):
+            if request_id == 5:
+                wait_for(worker, log_path, "TEST_MCP_WORKERS_BUSY")
+            language, line, expected_line = (
+                ("java", "int value=1;", "int value = 1;") if request_id % 2
+                else ("kotlin", "val value=1", "val value = 1")
+            )
+            source = f"class Demo {{\n  {line}\n}}\n"
+            body = json.dumps({"jsonrpc": "2.0", "id": request_id, "method": "tools/call", "params": {
+                "name": "ij_format_lines", "arguments": {
+                    "language": language, "source": source, "startLine": 2, "endLine": 2,
+                },
+            }})
+            connection = HTTPConnection(address.hostname, address.port, timeout=15)
+            stack.callback(connection.close)
+            connection.request("POST", address.path, body, client.headers)
+            requests.append((connection, connection.sock, source.replace(line, expected_line)))
+
+        wait_for(worker, log_path, "TEST_MCP_LIMITS_SAVED")
+        for name, value in (("minWorkers", 1), ("maxWorkers", 2), ("queueCapacity", 1)):
+            wait_for(worker, persisted, f'name="{name}" value="{value}"')
+        for request_id, (connection, socket, expected) in enumerate(requests, 1):
+            with connection.getresponse() as response:
+                reply = json.load(response)
+                assert response.status == 200 and reply["id"] == request_id, reply
+                result = reply["result"]
+                assert not result["isError"] and result["content"][0]["text"] == expected, result
+            assert connection.sock is socket
+
+        (state / "expand-limits").touch()
+        wait_for(worker, log_path, "TEST_MCP_LIMITS_EXPANDED")
+        connection, socket, _ = requests[0]
+        connection.request("POST", address.path, '{"jsonrpc":"2.0","id":8,"method":"ping"}', client.headers)
+        with connection.getresponse() as response:
+            assert response.status == 200 and json.load(response)["id"] == 8
+        assert connection.sock is socket
+        assert config.read_bytes() == connection_file
+    print("PASS Apply shrinks with 4 running and 3 queued Java/Kotlin requests; all complete, "
+          "then live expansion preserves the same TCP connection and credentials", flush=True)
+
+
+def test(idea, out, plugin_archive, cli=None):
     log_path = out / "integration.log"
     with run_idea(idea, log_path, plugin_archive) as (state, worker):
         wait_for(worker, log_path, "TEST_OPEN_PROJECTS 0")
@@ -187,9 +242,11 @@ def test(idea, out, plugin_archive):
         client.initialize()
         verify_access(client)
         exercise(client, 2, "headless welcome event with no open project")
+        verify_live_limits(state, worker, log_path, client)
+        persisted = state / "config/options/ij-format-mcp.xml"
+        assert client.rpc("tools/list")["result"]["tools"]
         (state / "disable-mcp").touch()
         wait_for(worker, log_path, "TEST_MCP_DISABLED")
-        persisted = state / "config/options/ij-format-mcp.xml"
         wait_for(worker, persisted, 'name="enabled" value="false"')
         try:
             client.rpc("tools/list")
@@ -204,9 +261,29 @@ def test(idea, out, plugin_archive):
         assert copied == {
             "mcpServers": {"ij-format": reenabled},
         }
+        copied_path = Path((state / "copied-path.txt").read_text())
+        assert copied_path == config
         client = Client(copied["mcpServers"]["ij-format"])
         client.initialize()
-        print("PASS application settings stop and restart MCP and copy working client JSON", flush=True)
+        if cli:
+            for path in (copied_path, state / "copied.json"):
+                checked = subprocess.run([str(cli), "status", "--config", str(path)],
+                                         capture_output=True, check=True, text=True, timeout=25)
+                assert reenabled["url"] in checked.stdout and "--range" in checked.stdout
+                assert reenabled["headers"]["Authorization"] not in checked.stdout + checked.stderr
+            java = subprocess.run(
+                [str(cli), "-", "--language", "java", "--lines", "2:2", "--config", str(state / "copied.json")],
+                input="class Demo {\n  int n=1;\n}\n", capture_output=True, check=True, text=True, timeout=25,
+            )
+            assert java.stdout == "class Demo {\n  int n = 1;\n}\n"
+            kotlin = subprocess.run(
+                [str(cli), "-", "--language", "kotlin", "--lines", "2:2", "--config", str(copied_path)],
+                input="class Demo {\n  val n=1\n}\n", capture_output=True, check=True, text=True, timeout=25,
+            )
+            assert kotlin.stdout == "class Demo {\n  val n = 1\n}\n"
+            print("PASS both settings copy actions, CLI status, Java using copied MCP JSON, Kotlin using the copied path", flush=True)
+        print("PASS application settings validation and persistence, active limits after restart "
+              "and Copy MCP JSON", flush=True)
         (state / "open-project").touch()
         wait_for(worker, log_path, "TEST_PROJECT_INDENT 10")
         exercise(client, 2, "open project with 10-space scheme and EditorConfig")
@@ -310,11 +387,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--idea-home", type=Path, required=True)
     parser.add_argument("--archive", type=Path, default=default_archive())
+    parser.add_argument("--cli", type=Path, help="verify the copied settings with this CLI binary")
     parser.add_argument("--out", type=Path, default=ROOT / "idea-plugin/build/integration")
     parser.add_argument("--welcome", action="store_true", help="also start an isolated graphical IDEA at its Welcome screen")
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
-    test(args.idea_home.resolve(), args.out.resolve(), args.archive.resolve())
+    test(args.idea_home.resolve(), args.out.resolve(), args.archive.resolve(), args.cli.resolve() if args.cli else None)
     test_startup(args.idea_home.resolve(), args.out.resolve(), args.archive.resolve(), welcome=False)
     if args.welcome:
         test_startup(args.idea_home.resolve(), args.out.resolve(), args.archive.resolve(), welcome=True)

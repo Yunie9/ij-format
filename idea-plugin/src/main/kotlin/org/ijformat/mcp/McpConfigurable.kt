@@ -18,6 +18,7 @@ import javax.swing.JButton
 import javax.swing.JCheckBox
 import javax.swing.JComponent
 import javax.swing.JLabel
+import javax.swing.JTextField
 
 internal data class McpConnection(val url: String, val headers: Map<String, String>) {
     fun clientJson(): String = GsonBuilder().setPrettyPrinting().create()
@@ -29,6 +30,33 @@ internal data class McpConnection(val url: String, val headers: Map<String, Stri
 internal class McpSettings : SimplePersistentStateComponent<McpSettings.Settings>(Settings()) {
     class Settings : BaseState() {
         var enabled by property(true)
+        var minWorkers by property(WorkerLimits.DEFAULT.minWorkers)
+        var maxWorkers by property(WorkerLimits.DEFAULT.maxWorkers)
+        var queueCapacity by property(WorkerLimits.DEFAULT.queueCapacity)
+
+        fun workerLimits() = WorkerLimits(minWorkers, maxWorkers, queueCapacity)
+
+        fun setWorkerLimits(limits: WorkerLimits) {
+            minWorkers = limits.minWorkers
+            maxWorkers = limits.maxWorkers
+            queueCapacity = limits.queueCapacity
+        }
+    }
+}
+
+internal data class WorkerLimits(val minWorkers: Int, val maxWorkers: Int, val queueCapacity: Int) {
+    fun validate() {
+        require(minWorkers in WORKERS && maxWorkers in WORKERS) { "Worker counts must be between 1 and 32." }
+        require(minWorkers <= maxWorkers) { "Minimum workers must be at most maximum workers." }
+        require(queueCapacity in QUEUE) { "Waiting queue capacity must be between 1 and 256." }
+    }
+
+    fun summary() = "Workers $minWorkers–$maxWorkers, waiting queue $queueCapacity"
+
+    companion object {
+        private val WORKERS = 1..32
+        private val QUEUE = 1..256
+        val DEFAULT = WorkerLimits(4, 4, 20)
     }
 }
 
@@ -36,10 +64,15 @@ class McpConfigurable : Configurable {
     private var enabled: JCheckBox? = null
     private var status: JLabel? = null
     private var copy: JButton? = null
+    private var copyPath: JButton? = null
+    private var minWorkers: JTextField? = null
+    private var maxWorkers: JTextField? = null
+    private var queueCapacity: JTextField? = null
+    private var activeLimits: JLabel? = null
     private val settings get() = service<McpSettings>().state
     private val server get() = service<LocalMcpServer>()
 
-    override fun getDisplayName() = "ij-format MCP"
+    override fun getDisplayName() = "ij-format"
 
     override fun createComponent(): JComponent = panel {
         row {
@@ -55,14 +88,45 @@ class McpConfigurable : Configurable {
                 }
             }.component
         }.rowComment("The JSON contains a local access token. Keep it private.")
+        row {
+            copyPath = button("Copy CLI Config Path") {
+                CopyPasteManager.getInstance().setContents(StringSelection(LocalMcpServer.connectionFile().toString()))
+            }.component
+        }.rowComment("Run ij-format status to check the connection. If several IDEA versions are detected, pass this path with --config.")
+        group("HTTP workers") {
+            row("Minimum workers:") {
+                minWorkers = textField().component.apply { columns = 6 }
+            }
+            row("Maximum workers:") {
+                maxWorkers = textField().component.apply { columns = 6 }
+            }.rowComment("Additional workers start when the waiting queue fills.")
+            row("Waiting queue capacity:") {
+                queueCapacity = textField().component.apply { columns = 6 }
+            }.rowComment("Apply updates the running server. Already queued requests are kept when the limit is lowered.")
+            row("Active limits:") {
+                activeLimits = label("").component
+            }
+        }
     }.also { reset() }
 
-    override fun isModified(): Boolean = enabled?.isSelected?.let { it != settings.enabled } ?: false
+    override fun isModified(): Boolean {
+        val selected = enabled?.isSelected ?: return false
+        val state = settings
+        return selected != state.enabled ||
+            minWorkers?.text?.trim()?.toIntOrNull() != state.minWorkers ||
+            maxWorkers?.text?.trim()?.toIntOrNull() != state.maxWorkers ||
+            queueCapacity?.text?.trim()?.toIntOrNull() != state.queueCapacity
+    }
 
     override fun apply() {
         val selected = enabled?.isSelected ?: return
         try {
-            server.setEnabled(selected)
+            val limits = WorkerLimits(
+                readInt(minWorkers, "Minimum workers"),
+                readInt(maxWorkers, "Maximum workers"),
+                readInt(queueCapacity, "Waiting queue capacity"),
+            )
+            server.configure(selected, limits)
         } catch (error: IOException) {
             throw ConfigurationException(error.localizedMessage ?: "Could not start the MCP server", displayName)
         } catch (error: IllegalArgumentException) {
@@ -71,8 +135,15 @@ class McpConfigurable : Configurable {
         updateStatus()
     }
 
+    private fun readInt(field: JTextField?, label: String): Int =
+        requireNotNull(field?.text?.trim()?.toIntOrNull()) { "$label must be a whole number." }
+
     override fun reset() {
-        enabled?.isSelected = settings.enabled
+        val state = settings
+        enabled?.isSelected = state.enabled
+        minWorkers?.text = state.minWorkers.toString()
+        maxWorkers?.text = state.maxWorkers.toString()
+        queueCapacity?.text = state.queueCapacity.toString()
         updateStatus()
     }
 
@@ -80,6 +151,11 @@ class McpConfigurable : Configurable {
         enabled = null
         status = null
         copy = null
+        copyPath = null
+        minWorkers = null
+        maxWorkers = null
+        queueCapacity = null
+        activeLimits = null
     }
 
     private fun updateStatus() {
@@ -90,5 +166,7 @@ class McpConfigurable : Configurable {
             else -> "Disabled"
         }
         copy?.isEnabled = connection != null
+        copyPath?.isEnabled = connection != null
+        activeLimits?.text = server.activeWorkerLimits?.summary() ?: "Server is stopped"
     }
 }

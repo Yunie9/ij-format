@@ -56,8 +56,16 @@ tasks.buildPlugin {
     archiveBaseName = "ij-format-mcp"
 }
 
+tasks.processResources {
+    val pluginVersion = project.version.toString()
+    inputs.property("pluginVersion", pluginVersion)
+    filesMatching("META-INF/ij-format-version.txt") {
+        expand("pluginVersion" to pluginVersion)
+    }
+}
+
 tasks.jar {
-    from(rootProject.files("LICENSE", "NOTICE")) {
+    from(project.files("../LICENSE", "../NOTICE")) {
         into("META-INF")
     }
 }

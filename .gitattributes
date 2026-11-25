@@ -1,2 +1,2 @@
-gradlew text eol=lf
-gradlew.bat text eol=crlf
+idea-plugin/gradlew text eol=lf
+idea-plugin/gradlew.bat text eol=crlf

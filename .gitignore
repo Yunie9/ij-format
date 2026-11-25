@@ -1,18 +1,30 @@
-# IDE and Gradle state
+# IDE, Gradle and build output
 .idea/
 .gradle/
 .kotlin/
 .intellijPlatform/
 build/
 *.iml
+/cli/cli
+/cli/cli.exe
+/cli/ij-format
+/cli/ij-format.exe
 
 # Local archives and test caches
 .research/
 dist/
 __pycache__/
+*.py[cod]
 .DS_Store
 
 # Local MCP connection credentials
 ij-format-mcp.json
 .env
 .env.local
+
+/docs/temp
+
+*.env
+*.pem
+*.key
+credentials*.json
