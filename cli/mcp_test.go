@@ -25,7 +25,7 @@ func TestConnectionFileFormats(t *testing.T) {
 			if err := os.WriteFile(path, []byte(test.data), 0600); err != nil {
 				t.Fatal(err)
 			}
-			got, err := loadConfig(path)
+			got, err := loadConfig(path, false)
 			if test.wantError != "" {
 				if err == nil || !strings.Contains(err.Error(), test.wantError) || strings.Contains(err.Error(), "test-local-token") {
 					t.Fatalf("got %v, want safe error containing %q", err, test.wantError)
@@ -34,5 +34,28 @@ func TestConnectionFileFormats(t *testing.T) {
 				t.Fatal("expected a valid local connection file")
 			}
 		})
+	}
+}
+
+func TestContainerConnectionRequiresExplicitOptIn(t *testing.T) {
+	const config = `{"url":"http://host.docker.internal:49273/mcp","headers":{"Authorization":"Bearer test-local-token"}}`
+	path := filepath.Join(t.TempDir(), "connection.json")
+	if err := os.WriteFile(path, []byte(config), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadConfig(path, false); err == nil {
+		t.Fatal("container address accepted without opt-in")
+	}
+	if _, err := loadConfig(path, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadConfig("", true); err == nil {
+		t.Fatal("container mode accepted automatic connection discovery")
+	}
+	if err := os.WriteFile(path, []byte(strings.Replace(config, "host.docker.internal", "remote.invalid", 1)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadConfig(path, true); err == nil {
+		t.Fatal("arbitrary hostname accepted in container mode")
 	}
 }

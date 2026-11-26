@@ -2,13 +2,15 @@
 
 [简体中文](zh-CN/CLI.md) · [Documentation](../README.md)
 
-The CLI sends UTF-8 source, language, and selection to the running IDEA plugin over local Streamable HTTP. IDEA can stay on its Welcome screen while it formats the source using the active IDE-wide code style. Use plugin 0.3.0 for exact column ranges. Line and whole-file formatting also work with plugin 0.2.0.
+The CLI sends UTF-8 source, language, and selection to the running IDEA plugin over local Streamable HTTP. IDEA can stay on its Welcome screen while it formats the source using the active IDE-wide code style. Exact column ranges require plugin 0.3.0 or later. Line and whole-file formatting also work with plugin 0.2.0.
 
 ## Install the CLI
 
-Use the install command for macOS or Linux, or extract the matching Windows ZIP and put `ij-format.exe` on your `PATH`. The executable runs without Go, Python, or Gradle installed. [Installation and downloads](../README.md#quick-start)
+Extract the ZIP for your OS and CPU and add the binary's directory to your `PATH`. The executable runs without Go, Python, or Gradle installed. [Installation and downloads](../README.md#quick-start)
 
 See the contribution guide to [build from source](CONTRIBUTING.md#go-cli).
+
+From v0.4.0 onward, download `install.sh` from the release and run `sh install.sh cli 0.4.0`. The installer checks the release checksum and places the binary in `~/.local/bin`. Pass an absolute directory as the third argument to choose another destination. Use the new version number to upgrade. To remove the CLI, delete the installed binary.
 
 ## First connection
 
@@ -29,6 +31,8 @@ printf 'class Demo {\n  val n=1\n}\n' | ij-format --config "$config" - --languag
 
 For an existing file, use `--lines` or `--range` to format the edited section. Add `--write` to apply the changes or use `--diff` to preview them.
 
+Use `--timeout 3s` to override the plugin's default formatting deadline for each input. The supported range is 1 ms to 2 minutes. The configured queue wait still applies. A busy queue or a timeout returns exit code `2`. The default with plugin 0.4.0 is 15 seconds per formatting request and up to 2 seconds in the queue, including the wait for IDEA's event dispatch thread. Change these limits in **Settings → Tools → ij-format**.
+
 ```sh
 ij-format Foo.java --lines 12:38
 ij-format Foo.java --range 12:5-14:18
@@ -46,7 +50,16 @@ Run `ij-format` or `ij-format --help` to see the full command help. Existing scr
 - A single input prints the complete formatted source by default. Choose at most one output mode. `--diff` prints a unified diff. `--check` prints inputs that would change, using `-` for stdin. `--write` replaces changed regular files and preserves Unix permission bits. With multiple files, choose an output mode and let the CLI infer each language from its extension.
 - Exit status is `0` for success, `1` when `--check` finds changes, and `2` for usage, input, formatting, or connection failures. Errors go to stderr. A batch processes valid files in order and returns `2` if any file fails.
 
-One batch uses one MCP handshake and processes files sequentially, reusing the HTTP connection while the server keeps it open. The CLI stops waiting after 25 seconds per HTTP request. If an agent's shell restricts access to the local port, the CLI reports the denied connection and the agent can use its configured MCP tool.
+One batch uses one MCP handshake and processes files sequentially, reusing the HTTP connection while the server keeps it open. With older plugins the HTTP client limit is 25 seconds per request. With plugin 0.4.0, the client allows the server's maximum formatting deadline plus five seconds for transport. An explicit `--timeout` sets that transport budget to the requested duration plus five seconds.
+
+## Docker development containers (experimental)
+
+On the host, enable the container endpoint through IDEA's custom VM options and restart IDEA.
+
+- For macOS Docker Desktop, start with `-Dijformat.mcp.container.bind=127.0.0.1`.
+- For Linux Docker Engine, use the host's private Docker bridge IPv4 address. Add `--add-host=host.docker.internal:host-gateway` when you start the container and verify that it resolves to that bridge address.
+
+Use **Copy MCP JSON** in IDEA. In a copy of the configuration, change the URL's host to `host.docker.internal`, keeping the port and token. Mount the copy read-only into the container and keep it out of source control and image builds. Use it directly in an MCP client or run `ij-format status --container --config /run/secrets/ij-format.json`. Add the same flags to formatting commands. The plugin retains the normal loopback endpoint and requires the token on both endpoints. Use this feature only for trusted local containers.
 
 ## Integration test
 

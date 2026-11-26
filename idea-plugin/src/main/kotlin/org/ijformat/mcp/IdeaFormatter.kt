@@ -25,6 +25,7 @@ internal object IdeaFormatter {
         endLine: Int,
         startColumn: Int?,
         endColumn: Int?,
+        onStart: () -> Unit,
     ): String {
         val name = when (language) {
             "java" -> "Input.java"
@@ -52,6 +53,7 @@ internal object IdeaFormatter {
         }
 
         val formatted = withContext(Dispatchers.EDT + ModalityState.nonModal().asContextElement()) {
+            onStart()
             val project = ProjectManager.getInstance().defaultProject
             val fileType = FileTypeManager.getInstance().getFileTypeByFileName(name)
             val file = PsiFileFactory.getInstance(project).createFileFromText(name, fileType, text)

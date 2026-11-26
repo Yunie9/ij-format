@@ -9,12 +9,24 @@ val ideaHome = providers.gradleProperty("ideaHome").map { file(it) }
 
 repositories {
     mavenCentral()
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = "elasticThreadPool"
+                url = uri(providers.gradleProperty("elasticThreadPoolRepository").getOrElse("https://jitpack.io"))
+            }
+        }
+        filter {
+            includeModule("com.github.Yunie9", "elastic-thread-pool")
+        }
+    }
     intellijPlatform {
         defaultRepositories()
     }
 }
 
 dependencies {
+    implementation("com.github.Yunie9:elastic-thread-pool:1.0.0")
     intellijPlatform {
         val installation = ideaHome.orNull
         if (installation == null) intellijIdea("2026.1.1") else local(installation)

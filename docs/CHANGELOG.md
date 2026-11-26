@@ -2,6 +2,13 @@
 
 [简体中文](zh-CN/CHANGELOG.md) · [Documentation](../README.md)
 
+## 0.4.0
+
+- Grow the HTTP worker pool under load and keep formatting in a separate bounded queue.
+- Set request and queue timeouts in IDEA. Override the request timeout from CLI or MCP.
+- Try the experimental opt-in connection from a Docker development container to the host's IDEA.
+- Install or upgrade the CLI and plugin on macOS or Linux with a release installer that verifies archive checksums.
+
 ## 0.3.0
 
 - Add a Go CLI for files and standard input, with unified diff, check, and write modes.

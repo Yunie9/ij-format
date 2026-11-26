@@ -33,22 +33,35 @@ internal class McpSettings : SimplePersistentStateComponent<McpSettings.Settings
         var minWorkers by property(WorkerLimits.DEFAULT.minWorkers)
         var maxWorkers by property(WorkerLimits.DEFAULT.maxWorkers)
         var queueCapacity by property(WorkerLimits.DEFAULT.queueCapacity)
+        var timeoutMs by property(WorkerLimits.DEFAULT.timeoutMs)
+        var queueTimeoutMs by property(WorkerLimits.DEFAULT.queueTimeoutMs)
 
-        fun workerLimits() = WorkerLimits(minWorkers, maxWorkers, queueCapacity)
+        fun workerLimits() = WorkerLimits(minWorkers, maxWorkers, queueCapacity, timeoutMs, queueTimeoutMs)
 
         fun setWorkerLimits(limits: WorkerLimits) {
             minWorkers = limits.minWorkers
             maxWorkers = limits.maxWorkers
             queueCapacity = limits.queueCapacity
+            timeoutMs = limits.timeoutMs
+            queueTimeoutMs = limits.queueTimeoutMs
         }
     }
 }
 
-internal data class WorkerLimits(val minWorkers: Int, val maxWorkers: Int, val queueCapacity: Int) {
+internal data class WorkerLimits(
+    val minWorkers: Int,
+    val maxWorkers: Int,
+    val queueCapacity: Int,
+    val timeoutMs: Int,
+    val queueTimeoutMs: Int,
+) {
     fun validate() {
         require(minWorkers in WORKERS && maxWorkers in WORKERS) { "Worker counts must be between 1 and 32." }
         require(minWorkers <= maxWorkers) { "Minimum workers must be at most maximum workers." }
         require(queueCapacity in QUEUE) { "Waiting queue capacity must be between 1 and 256." }
+        require(timeoutMs in TIMEOUTS && queueTimeoutMs in TIMEOUTS) {
+            "Timeouts must be between 1 and 120000 ms."
+        }
     }
 
     fun summary() = "Workers $minWorkers–$maxWorkers, waiting queue $queueCapacity"
@@ -56,7 +69,8 @@ internal data class WorkerLimits(val minWorkers: Int, val maxWorkers: Int, val q
     companion object {
         private val WORKERS = 1..32
         private val QUEUE = 1..256
-        val DEFAULT = WorkerLimits(4, 4, 20)
+        val TIMEOUTS = 1..120_000
+        val DEFAULT = WorkerLimits(2, 8, 20, 15_000, 2_000)
     }
 }
 
@@ -68,6 +82,8 @@ class McpConfigurable : Configurable {
     private var minWorkers: JTextField? = null
     private var maxWorkers: JTextField? = null
     private var queueCapacity: JTextField? = null
+    private var timeoutMs: JTextField? = null
+    private var queueTimeoutMs: JTextField? = null
     private var activeLimits: JLabel? = null
     private val settings get() = service<McpSettings>().state
     private val server get() = service<LocalMcpServer>()
@@ -99,13 +115,21 @@ class McpConfigurable : Configurable {
             }
             row("Maximum workers:") {
                 maxWorkers = textField().component.apply { columns = 6 }
-            }.rowComment("Additional workers start when the waiting queue fills.")
+            }.rowComment("Additional workers start as requests build up.")
             row("Waiting queue capacity:") {
                 queueCapacity = textField().component.apply { columns = 6 }
             }.rowComment("Apply updates the running server. Already queued requests are kept when the limit is lowered.")
             row("Active limits:") {
                 activeLimits = label("").component
             }
+        }
+        group("Formatting time limits") {
+            row("Default request timeout (ms):") {
+                timeoutMs = textField().component.apply { columns = 6 }
+            }
+            row("Maximum queue wait (ms):") {
+                queueTimeoutMs = textField().component.apply { columns = 6 }
+            }.rowComment("Includes waiting for IDEA's event dispatch thread. Applies to new requests.")
         }
     }.also { reset() }
 
@@ -115,7 +139,9 @@ class McpConfigurable : Configurable {
         return selected != state.enabled ||
             minWorkers?.text?.trim()?.toIntOrNull() != state.minWorkers ||
             maxWorkers?.text?.trim()?.toIntOrNull() != state.maxWorkers ||
-            queueCapacity?.text?.trim()?.toIntOrNull() != state.queueCapacity
+            queueCapacity?.text?.trim()?.toIntOrNull() != state.queueCapacity ||
+            timeoutMs?.text?.trim()?.toIntOrNull() != state.timeoutMs ||
+            queueTimeoutMs?.text?.trim()?.toIntOrNull() != state.queueTimeoutMs
     }
 
     override fun apply() {
@@ -125,6 +151,8 @@ class McpConfigurable : Configurable {
                 readInt(minWorkers, "Minimum workers"),
                 readInt(maxWorkers, "Maximum workers"),
                 readInt(queueCapacity, "Waiting queue capacity"),
+                readInt(timeoutMs, "Default request timeout"),
+                readInt(queueTimeoutMs, "Maximum queue wait"),
             )
             server.configure(selected, limits)
         } catch (error: IOException) {
@@ -144,6 +172,8 @@ class McpConfigurable : Configurable {
         minWorkers?.text = state.minWorkers.toString()
         maxWorkers?.text = state.maxWorkers.toString()
         queueCapacity?.text = state.queueCapacity.toString()
+        timeoutMs?.text = state.timeoutMs.toString()
+        queueTimeoutMs?.text = state.queueTimeoutMs.toString()
         updateStatus()
     }
 
@@ -155,6 +185,8 @@ class McpConfigurable : Configurable {
         minWorkers = null
         maxWorkers = null
         queueCapacity = null
+        timeoutMs = null
+        queueTimeoutMs = null
         activeLimits = null
     }
 

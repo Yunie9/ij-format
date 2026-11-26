@@ -107,33 +107,41 @@ public final class VerificationStarter implements ApplicationStarter {
         .findFirst().orElseThrow().createConfigurable();
     await(state.resolve("occupy-workers"));
     var oldWorkers = workerPool(configurable);
-    checkPool(oldWorkers, 4, 4, 20);
+    checkPool(oldWorkers, 2, 8, 20);
     application.invokeAndWait(() -> {
       // Hold the formatter's EDT work until Apply has run, without test hooks in the server.
       System.out.println("TEST_MCP_EDT_HELD");
-      waitUntil(() -> oldWorkers.getActiveCount() == 4, "four running HTTP requests");
-      System.out.println("TEST_MCP_WORKERS_BUSY");
-      waitUntil(() -> oldWorkers.getQueue().size() == 3, "three queued HTTP requests");
+      waitUntil(() -> queuedFormats(configurable) >= 6, "accepted format requests");
       var panel = configurable.createComponent();
       if (!"ij-format".equals(configurable.getDisplayName())) {
         throw new IllegalStateException("Unexpected settings display name");
       }
       var fields = components(panel, JTextField.class);
-      checkFields(fields, "4", "4", "20");
-      fields.get(0).setText("5");
+      checkFields(fields, "2", "8", "20", "15000", "2000");
+      fields.get(0).setText("9");
       expectInvalid(configurable, "Minimum workers must be at most maximum workers.");
       fields.get(0).setText("1");
       fields.get(1).setText("2");
       fields.get(2).setText("0");
       expectInvalid(configurable, "Waiting queue capacity must be between 1 and 256.");
       fields.get(2).setText("1");
+      fields.get(3).setText("0");
+      expectInvalid(configurable, "Timeouts must be between 1 and 120000 ms.");
+      fields.get(3).setText("16000");
+      fields.get(4).setText("3000");
       apply(configurable);
       if (configurable.isModified() || !hasLabel(panel, "Workers 1–2, waiting queue 1")) {
         throw new IllegalStateException("The updated limits were not shown after Apply");
       }
-      checkPool(oldWorkers, 1, 2, 0);
-      if (oldWorkers.getActiveCount() != 4 || oldWorkers.getQueue().size() != 3 || oldWorkers.getQueue().offer(() -> {})) {
-        throw new IllegalStateException("Shrink did not preserve the running and queued HTTP requests");
+      if (queuedFormats(configurable) < 6) {
+        throw new IllegalStateException("Shrink removed accepted format requests");
+      }
+      System.out.println("TEST_MCP_LIMITS_APPLIED");
+      try {
+        await(state.resolve("resume-edt"));
+      }
+      catch (Exception e) {
+        throw new IllegalStateException(e);
       }
       configurable.disposeUIResources();
     });
@@ -148,7 +156,7 @@ public final class VerificationStarter implements ApplicationStarter {
     application.invokeAndWait(() -> {
       var panel = configurable.createComponent();
       var fields = components(panel, JTextField.class);
-      checkFields(fields, "1", "2", "1");
+      checkFields(fields, "1", "2", "1", "16000", "3000");
       fields.get(0).setText("3");
       fields.get(1).setText("5");
       fields.get(2).setText("6");
@@ -166,7 +174,7 @@ public final class VerificationStarter implements ApplicationStarter {
     await(state.resolve("disable-mcp"));
     application.invokeAndWait(() -> {
       var panel = configurable.createComponent();
-      checkFields(components(panel, JTextField.class), "3", "5", "6");
+      checkFields(components(panel, JTextField.class), "3", "5", "6", "16000", "3000");
       var enabled = component(panel, JCheckBox.class);
       var copy = component(panel, JButton.class);
       var copyPath = components(panel, JButton.class).stream()
@@ -182,6 +190,13 @@ public final class VerificationStarter implements ApplicationStarter {
     });
     if (!oldWorkers.isShutdown()) {
       throw new IllegalStateException("Disabling MCP retained the old pool");
+    }
+    try {
+      oldWorkers.submit(() -> {});
+      throw new IllegalStateException("The stopped elastic pool accepted a new task");
+    }
+    catch (java.util.concurrent.RejectedExecutionException expected) {
+      // A stopped pool must not enqueue a Future that cannot run.
     }
     StoreUtil.saveSettings(application, true);
     System.out.println("TEST_MCP_DISABLED");
@@ -219,15 +234,36 @@ public final class VerificationStarter implements ApplicationStarter {
   }
 
   private static ThreadPoolExecutor workerPool(Configurable configurable) throws ReflectiveOperationException {
-    // Inspect the real executor in the isolated IDE without exposing it through the plugin API.
+    var running = runningServer(configurable);
+    var workersField = running.getClass().getDeclaredField("workers");
+    workersField.setAccessible(true);
+    return (ThreadPoolExecutor) workersField.get(running);
+  }
+
+  private static Object runningServer(Configurable configurable) throws ReflectiveOperationException {
     var serverType = configurable.getClass().getClassLoader().loadClass("org.ijformat.mcp.LocalMcpServer");
     var server = ApplicationManager.getApplication().getService(serverType);
     var runningField = serverType.getDeclaredField("running");
     runningField.setAccessible(true);
-    var running = runningField.get(server);
-    var workersField = running.getClass().getDeclaredField("workers");
-    workersField.setAccessible(true);
-    return (ThreadPoolExecutor) workersField.get(running);
+    return runningField.get(server);
+  }
+
+  private static int queuedFormats(Configurable configurable) {
+    try {
+      var running = runningServer(configurable);
+      var formattingField = running.getClass().getDeclaredField("formatting");
+      formattingField.setAccessible(true);
+      var formatting = formattingField.get(running);
+      var pendingField = formatting.getClass().getDeclaredField("pending");
+      pendingField.setAccessible(true);
+      var pending = (java.util.Collection<?>) pendingField.get(formatting);
+      synchronized (pending) {
+        return pending.size();
+      }
+    }
+    catch (ReflectiveOperationException e) {
+      throw new IllegalStateException("Could not inspect the format queue", e);
+    }
   }
 
   private static void checkPool(ThreadPoolExecutor pool, int min, int max, int queueCapacity) {
