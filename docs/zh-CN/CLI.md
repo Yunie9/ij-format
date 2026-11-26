@@ -2,19 +2,13 @@
 
 [English](../CLI.md) · [文档首页](README.md)
 
-CLI 连接正在运行的 IDEA 插件的 Streamable HTTP 端点，把本地 UTF-8 源码、语言和选区发送给插件。精确列范围需要插件 0.3.0，行范围和整文件格式化也兼容 0.2.0。
+CLI 通过本地 Streamable HTTP 把 UTF-8 源码、语言和选区发送给运行中的 IDEA 插件。IDEA 停在欢迎页也能按当前全局代码风格格式化。精确列范围需要插件 0.3.0，行范围和整文件格式化也兼容 0.2.0。
 
 ## 安装 CLI
 
-在 GitHub Releases 下载对应操作系统和 CPU 架构的归档，解压后把 `ij-format` 加入 `PATH`。Windows 的可执行文件是 `ij-format.exe`。已编译的程序运行时无需安装 Go、Python 或 Gradle。
+macOS 或 Linux 可以使用 README 中的安装命令。Windows 用户解压对应架构的 ZIP 后，将 `ij-format.exe` 所在目录加入 `PATH`。运行发布包无需安装 Go、Python 或 Gradle。 [安装与下载](README.md#安装并连接)
 
-开发时可以用 Go 1.22 或以上版本，在仓库根目录从源码构建。
-
-```sh
-go -C cli build -trimpath -ldflags='-s -w' -o ../build/ij-format .
-```
-
-可直接运行 `./build/ij-format`。在 Windows 上把构建输出改为 `../build/ij-format.exe`。
+如需从源码构建，见[贡献指南](CONTRIBUTING.md#go-cli)。
 
 ## 首次连接
 
@@ -33,6 +27,8 @@ printf 'class Demo {\n  val n=1\n}\n' | ij-format --config "$config" - --languag
 
 ## 格式化源码
 
+对已有文件，用 `--lines` 或 `--range` 格式化改动的范围。用 `--write` 写回，或按需用 `--diff` 预览。
+
 ```sh
 ij-format Foo.java --lines 12:38
 ij-format Foo.java --range 12:5-14:18
@@ -47,14 +43,14 @@ ij-format Foo.java Bar.kt --whole-file --check
 - `--lines FIRST:LAST` 选择包含首尾的行范围，行号从 1 开始。`--whole-file` 用于整个输入，多文件调用必须使用它。空输入的整文件格式化直接成功。
 - `--range LINE:COL-LINE:COL` 选择单个输入中的精确范围，起点包含在内，终点排除在外。行列号从 1 开始，每个 Unicode 码点算一列，制表符也算一列。行末字符后一列可用作终点，文件末尾有换行时也可用下一空行的第一列。IDEA 会拒绝越出选区的改动。
 - 根据 `.java` 和 `.kt` 自动识别语言。标准输入（`-`）和非标准扩展名的单文件需指定 `--language java|kotlin`。每份输入最多 128 KiB。
-- 单个输入默认把完整结果写到 stdout。`--diff` 打印统一差异，`--check` 列出需要改动的路径，`--write` 替换修改过的文件并保留权限位。三种模式互斥。多文件必须显式指定一种模式，并根据每个文件的扩展名识别语言。
+- 单个输入默认输出完整的格式化结果。输出模式最多选一种。`--diff` 显示差异。`--check` 列出需要改动的输入，标准输入显示为 `-`。`--write` 写回发生改动的普通文件，并保留 Unix 权限位。处理多个文件时必须选择输出模式，CLI 按各文件的扩展名识别语言。
 - 退出码为 `0`（成功）、`1`（`--check` 发现需要改动的文件）、`2`（参数、文件、连接或格式化失败）。错误写到 stderr。批次会按顺序继续处理其他输入，任何输入失败时批次返回 `2`。
 
-一个批次只握手一次，顺序处理输入，并在服务器保持连接时复用 HTTP 连接。如果 Agent 的 shell 禁止访问本地端口，CLI 会报连接权限错误，Agent 可以使用已配置的 MCP 工具。
+一个批次只握手一次，顺序处理输入，并在服务器保持连接时复用 HTTP 连接。CLI 对每个 HTTP 请求最多等待 25 秒。如果 Agent 的 shell 禁止访问本地端口，CLI 会报连接权限错误，Agent 可以使用已配置的 MCP 工具。
 
 ## 集成测试
 
-用上面的命令构建 CLI，再[构建插件 ZIP](CONTRIBUTING.md#idea-插件)。在 macOS 图形会话中用 Python 3.9 或以上版本运行测试。
+在 macOS 上[构建 CLI](CONTRIBUTING.md#go-cli) 和[插件 ZIP](CONTRIBUTING.md#idea-插件)，再在图形会话中用 Python 3.9 或以上版本运行测试。
 
 ```sh
 python3 integration-tests/test-cli.py --idea-home '/Applications/IntelliJ IDEA.app/Contents'

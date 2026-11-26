@@ -8,7 +8,7 @@
 - `cli/` is the Go module, with its own `go.mod`, command, and unit tests.
 - `integration-tests/` contains the Python runners that exercise the packaged plugin and CLI in IDEA.
 - `benchmarks/` contains the performance runners for current and historical plugin builds.
-- `docs/` contains usage, verification, and release documentation.
+- `docs/` contains the CLI guide, contribution and release instructions, and other project documentation.
 
 ## IDEA plugin
 
@@ -28,7 +28,7 @@ python3 integration-tests/test-idea-plugin.py --welcome \
   --idea-home '/Applications/IntelliJ IDEA.app/Contents'
 ```
 
-The macOS integration script requires Python 3.9 or later. It runs the packaged plugin in isolated IDEA processes with temporary configuration and an ephemeral loopback port. Pass `--welcome` from a graphical login session to include the graphical Welcome screen. Reports and test logs remain under `idea-plugin/build/` by default. The separately compiled test starter is loaded only by the integration script.
+The macOS test needs Python 3.9 or later. It runs the plugin ZIP in isolated IDEA processes using temporary settings and a local port. Run `--welcome` from a graphical login session to test the Welcome screen. Logs default to `idea-plugin/build/integration/`. The script builds and loads its own test starter.
 
 ## Go CLI
 
@@ -40,16 +40,20 @@ go -C cli test ./...
 go -C cli build -trimpath -ldflags='-s -w' -o ../build/ij-format .
 ```
 
+On Windows, set the output path to `../build/ij-format.exe`.
+
 Run the [CLI integration test](CLI.md#integration-test) against the packaged plugin on macOS. To verify that both Copy buttons produce working CLI configurations, add `--cli build/ij-format` to the plugin integration command above.
 
 GitHub Actions runs Go checks on Ubuntu, macOS, and Windows, plus a Go 1.22 compatibility job on Ubuntu. The Ubuntu plugin job builds the ZIP, runs Plugin Verifier, and uploads the verified ZIP and any generated verifier reports as workflow artifacts.
 
 ## Releasing
 
-Set `pluginVersion` and add matching entries to both [changelogs](CHANGELOG.md). After CI passes on the release commit, push an annotated `vMAJOR.MINOR.PATCH` tag for that commit.
+Set `pluginVersion` in `idea-plugin/gradle.properties` and update both changelogs. Once CI passes, push an annotated `vMAJOR.MINOR.PATCH` tag for that commit. [English changelog](CHANGELOG.md) · [Chinese changelog](zh-CN/CHANGELOG.md)
 
-The workflow verifies the tagged source and creates a GitHub Release draft with the verified plugin ZIP, CLI ZIPs for macOS, Linux, and Windows (`amd64` and `arm64`), and `SHA256SUMS`. The draft uses the matching English changelog entry. Review the draft and test the downloaded plugin and CLI together on the target IDEA version before publishing. If the workflow reports that a release already exists, review that release and its attachments on GitHub.
+Actions creates a Release draft from the English changelog and attaches the verified plugin ZIP, six CLI ZIPs (macOS, Linux, and Windows on `amd64` and `arm64`), and `SHA256SUMS`. Test the downloaded plugin and CLI together before publishing the draft.
+
+If the Release already exists, the tag workflow stops at upload. Use the `idea-plugin` and `release-cli` artifacts from that run, generate `SHA256SUMS` for the seven ZIPs, and attach the files to the existing Release.
 
 ## Reporting issues
 
-Keep each formatting request independent of the active project. Include concrete reproduction steps for formatter changes and use self-contained samples in reports. Remove credentials and private source code from examples or logs.
+Include reproduction steps and a self-contained source sample. Remove credentials and private code from examples and logs.

@@ -2,19 +2,13 @@
 
 [简体中文](zh-CN/CLI.md) · [Documentation](../README.md)
 
-The CLI uses the running IDEA plugin's Streamable HTTP endpoint. It reads UTF-8 source locally and sends the source, language, and selection. Use plugin 0.3.0 for exact column ranges. Line and whole-file formatting also work with plugin 0.2.0.
+The CLI sends UTF-8 source, language, and selection to the running IDEA plugin over local Streamable HTTP. IDEA can stay on its Welcome screen while it formats the source using the active IDE-wide code style. Use plugin 0.3.0 for exact column ranges. Line and whole-file formatting also work with plugin 0.2.0.
 
 ## Install the CLI
 
-Extract the archive for your OS and CPU from the GitHub Release and put `ij-format` (or `ij-format.exe` on Windows) on your `PATH`. The executable runs without Go, Python, or Gradle installed.
+Use the install command for macOS or Linux, or extract the matching Windows ZIP and put `ij-format.exe` on your `PATH`. The executable runs without Go, Python, or Gradle installed. [Installation and downloads](../README.md#quick-start)
 
-To build from source, run this from the repository root with Go 1.22 or later.
-
-```sh
-go -C cli build -trimpath -ldflags='-s -w' -o ../build/ij-format .
-```
-
-Run `./build/ij-format` from the checkout or put it on your `PATH`. On Windows, use `../build/ij-format.exe` as the output path and run `ij-format.exe`.
+See the contribution guide to [build from source](CONTRIBUTING.md#go-cli).
 
 ## First connection
 
@@ -33,6 +27,8 @@ printf 'class Demo {\n  val n=1\n}\n' | ij-format --config "$config" - --languag
 
 ## Format source
 
+For an existing file, use `--lines` or `--range` to format the edited section. Add `--write` to apply the changes or use `--diff` to preview them.
+
 ```sh
 ij-format Foo.java --lines 12:38
 ij-format Foo.java --range 12:5-14:18
@@ -47,14 +43,14 @@ Run `ij-format` or `ij-format --help` to see the full command help. Existing scr
 - `--lines FIRST:LAST` selects an inclusive, 1-based range in one file or stdin. Multiple files require `--whole-file`. Whole-file formatting of empty input is a no-op.
 - `--range LINE:COL-LINE:COL` selects an exact range in one file or stdin. Both coordinates are 1-based, the start is included, and the end is exclusive. Each Unicode code point counts as one column, including tabs. The column immediately after the last character is a valid endpoint. A final line break allows an endpoint at column 1 of the following empty line. IDEA rejects any result that would change text outside the selection.
 - Paths ending in `.java` or `.kt` select the language automatically. Stdin (`-`) and single files with other names need `--language java|kotlin`. Stdin accepts up to 128 KiB, like files.
-- Single-file output defaults to the complete formatted source on stdout. `--check` lists paths that would change. `--diff` prints a unified diff. `--write` replaces changed files and preserves their permission bits. These modes are mutually exclusive. Multiple files require an explicit mode and infer the language from each file extension.
+- A single input prints the complete formatted source by default. Choose at most one output mode. `--diff` prints a unified diff. `--check` prints inputs that would change, using `-` for stdin. `--write` replaces changed regular files and preserves Unix permission bits. With multiple files, choose an output mode and let the CLI infer each language from its extension.
 - Exit status is `0` for success, `1` when `--check` finds changes, and `2` for usage, input, formatting, or connection failures. Errors go to stderr. A batch processes valid files in order and returns `2` if any file fails.
 
-One batch uses one MCP handshake and processes files sequentially, reusing the HTTP connection while the server keeps it open. An Agent's shell may restrict access to the local port. In that case, the CLI reports the denied connection and the Agent can use its configured MCP tool.
+One batch uses one MCP handshake and processes files sequentially, reusing the HTTP connection while the server keeps it open. The CLI stops waiting after 25 seconds per HTTP request. If an agent's shell restricts access to the local port, the CLI reports the denied connection and the agent can use its configured MCP tool.
 
 ## Integration test
 
-Build the CLI as shown above and [build the plugin ZIP](CONTRIBUTING.md#idea-plugin), then run the macOS integration test with Python 3.9 or later. Use `--cli` to test a binary at a different path.
+On macOS, [build the CLI](CONTRIBUTING.md#go-cli) and [plugin ZIP](CONTRIBUTING.md#idea-plugin), then run the test in a graphical session with Python 3.9 or later. Pass `--cli` to use a different binary.
 
 ```sh
 python3 integration-tests/test-cli.py --idea-home '/Applications/IntelliJ IDEA.app/Contents'

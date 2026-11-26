@@ -6,6 +6,6 @@
 
 插件在用户自己的 IntelliJ IDEA 中运行。插件 ZIP 不含 IntelliJ IDEA、JVM、Java 或 Kotlin 语言插件、Gson 或 Kotlin 运行时库。这些接口与库由运行中的 IDE 提供。
 
-Go CLI 使用 [go-diff v1.4.5](https://github.com/sergi/go-diff/tree/v1.4.5)，版权归 The go-diff Authors © 2012–2016 所有，采用 [MIT 许可证](../../cli/LICENSE-go-diff)。它基于 Google 的 Diff Match Patch，版权归 Google Inc. © 2006 所有，采用 [Apache 2.0 许可证](../../cli/LICENSE-diff-match-patch)。CLI 二进制分发包包含这两份许可证。
+Go CLI 使用 go-diff v1.4.5，版权归 The go-diff Authors © 2012–2016 所有，采用 MIT 许可证。它基于 Google 的 Diff Match Patch，版权归 Google Inc. © 2006 所有，采用 Apache 2.0 许可证。CLI 发布包包含两份许可证。 [go-diff](https://github.com/sergi/go-diff/tree/v1.4.5) · [MIT 许可证](../../cli/LICENSE-go-diff) · [Apache 2.0 许可证](../../cli/LICENSE-diff-match-patch)
 
 CLI 发布归档还以 `LICENSE-Go` 和 `PATENTS-Go` 的名称包含 Go 发行版的许可证和专利声明。

@@ -2,12 +2,23 @@
 
 [English](../../README.md)
 
-复用本机 IntelliJ IDEA 的原生格式化引擎和全局代码风格，格式化 Java 或 Kotlin。终端可以使用 Go CLI，Agent 可以直接调用插件的本地 MCP 工具。两种方式都只需要源代码，IDEA 停在欢迎页也可以使用。
+使用运行中的 IntelliJ IDEA 的原生格式化引擎和全局代码风格，格式化 Java 或 Kotlin 的指定范围。终端用 CLI，Agent 可连接本地 MCP。IDEA 停在欢迎页也能使用。
+
+## 为什么做 ij-format？
+
+对已经按 IDEA 风格格式化的存量代码，局部格式化可以沿用原有风格，减少无关 diff。
+
+- `ktlint --format` 按路径或 glob 选择 Kotlin 文件，整文件应用自身规则，结果可能与 IDEA 风格不同。 [ktlint 用法](https://github.com/ktlint/ktlint#usage)
+- `google-java-format` 支持 Java 行范围和字符偏移，采用 Google Java Style，可能改变存量 IDEA 代码的缩进和换行。 [google-java-format 用法](https://github.com/google/google-java-format#using-the-formatter)
+- IDEA 自带的 `format` 命令以文件或目录为单位，无法指定行列范围，并要求关闭正在运行的 IDEA 实例。 [IDEA 命令行格式化](https://www.jetbrains.com/help/idea/command-line-formatter.html)
+- IDEA 自带 MCP 的 `reformat_file` 需要已打开项目中的文件路径。实际使用时，响应慢或卡住也会打断 Agent 的编辑流程。 [IDEA MCP 格式化工具](https://www.jetbrains.com/help/idea/mcp-server.html#formatting-tools)
+
+ij-format 接收源码和选区，支持整行和精确行列范围。插件使用 IDEA 的全局风格，拒绝越出选区的改动。源码所属项目无需打开。CLI 复用运行中的 IDEA，每个 HTTP 请求最多等待 25 秒。
 
 ## 安装并连接
 
-1. 下载插件 ZIP。在 IDEA 的 **Settings → Plugins → ⚙ → Install Plugin from Disk** 中选择该 ZIP，按提示重启。已验证 IntelliJ IDEA 2026.1.1，构建号 `IU-261.23567.138`。格式化 Kotlin 需要启用 IDEA 的 Kotlin 支持。 [下载插件 ZIP](https://github.com/Yunie9/ij-format/releases/download/v0.3.0/ij-format-mcp-0.3.0.zip) · [IDEA 安装说明](https://www.jetbrains.com/help/idea/managing-plugins.html#install_plugin_from_disk)
-2. 打开 **Settings → Tools → ij-format**，确认状态显示 **Running**。服务启动后，IDEA 停在欢迎页也能使用。
+1. 下载插件 ZIP，在 IDEA 的 **Settings → Plugins → ⚙ → Install Plugin from Disk** 中选择它，按提示重启。已在 IDEA 2026.1.1（`IU-261.23567.138`）验证。格式化 Kotlin 需启用 Kotlin 支持。 [下载插件 ZIP](https://github.com/Yunie9/ij-format/releases/download/v0.3.0/ij-format-mcp-0.3.0.zip) · [IDEA 安装说明](https://www.jetbrains.com/help/idea/managing-plugins.html#install_plugin_from_disk)
+2. 在 **Settings → Tools → ij-format** 确认服务状态为 **Running**。
 3. 在 macOS 或 Linux 上，以下命令会按 CPU 架构下载安装 CLI 到 `~/.local/bin`。将此目录加入 `PATH` 后即可直接运行 `ij-format`。Windows 用户请下载并解压对应架构的 ZIP，再把 `ij-format.exe` 所在目录加入 `PATH`。 [发布附件](https://github.com/Yunie9/ij-format/releases/tag/v0.3.0)
 
    ```sh
@@ -41,11 +52,14 @@
 # 检查 IDEA 连接和支持的范围类型
 ij-format status
 
-# 预览 Java 第 12 到 38 行的改动
-ij-format Main.java --lines 12:38 --diff
+# 格式化 Java 第 12 到 38 行并写回
+ij-format Main.java --lines 12:38 --write
 
 # 精确到列格式化 Kotlin 并写回
 ij-format Example.kt --range 12:5-14:18 --write
+
+# 按需预览格式化差异
+ij-format Main.java --lines 12:38 --diff
 
 # 从标准输入读取 Kotlin，输出格式化结果
 ij-format - --language kotlin --lines 2:6 < Example.kt
@@ -54,9 +68,19 @@ ij-format - --language kotlin --lines 2:6 < Example.kt
 ij-format Main.java Example.kt --whole-file --check
 ```
 
-每次选择 `--lines`、`--range` 或 `--whole-file` 之一。行列号从 1 开始，`--lines` 包含首尾，`--range` 排除终点。单个输入默认将完整格式化结果输出到 stdout。退出码 `0` 表示成功，`1` 表示 `--check` 发现需要改动的文件，`2` 表示执行出错。
+CLI 指南介绍了范围规则、退出码和如何用 `--config` 选择 IDEA 配置。 [完整 CLI 指南](CLI.md)
 
-检测到多个 IDEA 配置时，在设置页点击 **Copy CLI Config Path**，通过 `--config` 指定路径，例如 `ij-format status --config "/path/to/ij-format-mcp.json"`。 [完整 CLI 指南](CLI.md)
+## 让 Coding Agent 使用 CLI
+
+将以下内容加入项目的 `AGENTS.md`。
+
+```md
+修改 Java 或 Kotlin 代码后，用 `ij-format` 格式化本次改动及必要的上下文。
+
+- 首次使用时，运行 `ij-format --help` 查看用法，再用 `ij-format status` 检查 IDEA 连接。
+- 默认用 `--write` 写回。按整行选区用 `--lines`，需要精确到列时用 `--range`，仅在需要预览时用 `--diff`。示例：`ij-format Example.kt --range 12:5-14:18 --write`。
+- 对已有文件，除非用户或项目明确要求，否则不得执行全文件格式化。
+```
 
 ## 工具参数和行为
 
@@ -69,7 +93,7 @@ ij-format Main.java Example.kt --whole-file --check
 
 ## 服务设置
 
-默认地址为 `http://127.0.0.1:49273/mcp`。多个 IDEA 实例可分别在 VM options 设置端口，例如 `-Dijformat.mcp.port=49274`。复制的 JSON 含访问令牌，请妥善保管。 [隐私和本地数据](PRIVACY.md)
+默认地址为 `http://127.0.0.1:49273/mcp` 。多个 IDEA 实例可分别在 VM options 设置端口，例如 `-Dijformat.mcp.port=49274`。复制的 JSON 含访问令牌，请妥善保管。 [隐私和本地数据](PRIVACY.md)
 
 **HTTP workers** 默认最小 4、最大 4、等待队列 20。工作线程数可设为 1–32，最小值不得大于最大值，队列可设为 1–256。队列满后，线程池会按需扩到配置的最大值。点 **Apply** 立即更新运行中的服务，保留现有连接和已接收请求。缩容时，队列降到新上限以下后恢复接纳新任务。
 

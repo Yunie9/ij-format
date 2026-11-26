@@ -1,13 +1,24 @@
 # ij-format
 
-Format Java and Kotlin with IntelliJ IDEA’s native formatter and your IDE-wide code style. The project provides a Go CLI and a local Streamable HTTP MCP server.
+Format Java and Kotlin ranges with the native formatter and active IDE-wide code style from a running IntelliJ IDEA instance. Use the CLI from a terminal or the local MCP tool from a coding agent. IDEA can stay on the Welcome screen.
 
 [简体中文](docs/zh-CN/README.md)
 
+## Why ij-format?
+
+For codebases already formatted in IDEA, targeted formatting keeps small edits in the existing style and limits the diff.
+
+- `ktlint --format` selects Kotlin files by path or glob and applies its own rules to the whole file. The output can differ from IDEA’s code style. [ktlint usage](https://github.com/ktlint/ktlint#usage)
+- `google-java-format` supports Java line ranges and character offsets. It applies Google Java Style, which can change indentation and wrapping in code formatted with IDEA. [google-java-format usage](https://github.com/google/google-java-format#using-the-formatter)
+- IDEA’s built-in `format` takes files or directories and requires other IDEA instances to be closed. It has no line or column selection. [IDEA command-line formatter](https://www.jetbrains.com/help/idea/command-line-formatter.html)
+- IDEA’s MCP `reformat_file` needs a path in an open project. Slow or stalled calls also interrupted our agent workflow. [IDEA MCP formatting tools](https://www.jetbrains.com/help/idea/mcp-server.html#formatting-tools)
+
+ij-format takes source text and a line range or exact line-and-column selection. The plugin uses the active IDE-wide scheme and rejects changes outside the selection. The source project can stay closed. The CLI reuses the running IDEA instance and times out each HTTP request after 25 seconds.
+
 ## Quick start
 
-1. Download the plugin ZIP. In IDEA, open **Settings → Plugins → ⚙ → Install Plugin from Disk**, select the ZIP, and restart IDEA if prompted. The verified host is IntelliJ IDEA 2026.1.1 (build `IU-261.23567.138`). Enable IDEA's Kotlin support for Kotlin formatting. [Download the plugin ZIP](https://github.com/Yunie9/ij-format/releases/download/v0.3.0/ij-format-mcp-0.3.0.zip) · [IDEA installation help](https://www.jetbrains.com/help/idea/managing-plugins.html#install_plugin_from_disk)
-2. In **Settings → Tools → ij-format**, check that the server shows **Running**. The service works from the Welcome screen or an open project.
+1. Download the plugin ZIP. In IDEA, select **Settings → Plugins → ⚙ → Install Plugin from Disk**, choose the ZIP, and restart if prompted. Verified on IDEA 2026.1.1 (build `IU-261.23567.138`). Enable Kotlin support to format Kotlin. [Download the plugin ZIP](https://github.com/Yunie9/ij-format/releases/download/v0.3.0/ij-format-mcp-0.3.0.zip) · [IDEA installation help](https://www.jetbrains.com/help/idea/managing-plugins.html#install_plugin_from_disk)
+2. Check for **Running** in **Settings → Tools → ij-format**.
 3. On macOS or Linux, install the CLI for your CPU into `~/.local/bin`. Add that directory to your `PATH` to run `ij-format` by name. On Windows, extract the matching ZIP and add the directory containing `ij-format.exe` to your `PATH`. [Release downloads](https://github.com/Yunie9/ij-format/releases/tag/v0.3.0)
 
    ```sh
@@ -39,13 +50,26 @@ Format Java and Kotlin with IntelliJ IDEA’s native formatter and your IDE-wide
 
 ```sh
 ij-format status
-ij-format Main.java --lines 12:38 --diff
+ij-format Main.java --lines 12:38 --write
 ij-format Example.kt --range 12:5-14:18 --write
+ij-format Main.java --lines 12:38 --diff
 ij-format - --language kotlin --lines 2:6 < Example.kt
 ij-format Main.java Example.kt --whole-file --check
 ```
 
 The CLI guide explains range rules, exit codes, and selecting an IDEA profile with `--config`. [English CLI guide](docs/CLI.md) · [中文 CLI 指南](docs/zh-CN/CLI.md)
+
+## Using the CLI with coding agents
+
+Add this snippet to your project's `AGENTS.md`.
+
+```md
+After editing Java or Kotlin code, use `ij-format` to format the changes and any necessary surrounding code.
+
+- On first use, run `ij-format --help` for usage and `ij-format status` to check the IDEA connection.
+- Write changes with `--write` by default. Use `--lines` for whole-line selections and `--range` for exact column boundaries. Use `--diff` when a preview is needed. Example: `ij-format Example.kt --range 12:5-14:18 --write`.
+- Format an entire existing file only when the user or project explicitly requires it.
+```
 
 ## MCP tool
 
