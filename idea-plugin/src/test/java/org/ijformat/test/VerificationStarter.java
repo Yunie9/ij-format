@@ -28,7 +28,9 @@ import java.util.function.BooleanSupplier;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JLabel;
+import javax.swing.JPasswordField;
 import javax.swing.JTextField;
+import javax.swing.JToggleButton;
 
 /** Installed only in the isolated integration-test IDE. */
 public final class VerificationStarter implements ApplicationStarter {
@@ -107,33 +109,63 @@ public final class VerificationStarter implements ApplicationStarter {
         .findFirst().orElseThrow().createConfigurable();
     await(state.resolve("occupy-workers"));
     var oldWorkers = workerPool(configurable);
-    checkPool(oldWorkers, 4, 4, 20);
+    checkPool(oldWorkers, 2, 8, 20);
     application.invokeAndWait(() -> {
       // Hold the formatter's EDT work until Apply has run, without test hooks in the server.
       System.out.println("TEST_MCP_EDT_HELD");
-      waitUntil(() -> oldWorkers.getActiveCount() == 4, "four running HTTP requests");
-      System.out.println("TEST_MCP_WORKERS_BUSY");
-      waitUntil(() -> oldWorkers.getQueue().size() == 3, "three queued HTTP requests");
+      waitUntil(() -> queuedFormats(configurable) >= 6, "accepted format requests");
       var panel = configurable.createComponent();
       if (!"ij-format".equals(configurable.getDisplayName())) {
         throw new IllegalStateException("Unexpected settings display name");
       }
-      var fields = components(panel, JTextField.class);
-      checkFields(fields, "4", "4", "20");
-      fields.get(0).setText("5");
+      var keyField = component(panel, JPasswordField.class);
+      var keyVisibility = components(panel, JToggleButton.class).stream()
+          .filter(button -> "Show key".equals(button.getText())).findFirst().orElseThrow();
+      char mask = keyField.getEchoChar();
+      if (mask == 0 || !"Show key".equals(keyVisibility.getText())) {
+        throw new IllegalStateException("The key should start masked");
+      }
+      keyVisibility.doClick();
+      if (keyField.getEchoChar() != 0 || !"Hide key".equals(keyVisibility.getText()) || configurable.isModified()) {
+        throw new IllegalStateException("Showing the key should only change visibility");
+      }
+      keyVisibility.doClick();
+      if (keyField.getEchoChar() != mask || !"Show key".equals(keyVisibility.getText())) {
+        throw new IllegalStateException("Hiding the key did not restore its mask");
+      }
+      keyVisibility.doClick();
+      configurable.reset();
+      if (keyField.getEchoChar() != mask || keyVisibility.isSelected()) {
+        throw new IllegalStateException("Reset did not hide the key");
+      }
+      var fields = numericFields(panel);
+      checkFields(fields, "2", "8", "5", "20", "15000");
+      fields.get(0).setText("9");
       expectInvalid(configurable, "Minimum workers must be at most maximum workers.");
       fields.get(0).setText("1");
       fields.get(1).setText("2");
+      fields.get(2).setText("257");
+      expectInvalid(configurable, "Scale-up threshold must be between 0 and 256.");
       fields.get(2).setText("0");
-      expectInvalid(configurable, "Waiting queue capacity must be between 1 and 256.");
-      fields.get(2).setText("1");
+      fields.get(3).setText("0");
+      expectInvalid(configurable, "Maximum in-flight requests must be between 1 and 256.");
+      fields.get(3).setText("1");
+      fields.get(4).setText("0");
+      expectInvalid(configurable, "Timeouts must be between 1 and 120000 ms.");
+      fields.get(4).setText("600");
       apply(configurable);
-      if (configurable.isModified() || !hasLabel(panel, "Workers 1–2, waiting queue 1")) {
+      if (configurable.isModified() || !hasLabel(panel, "Workers 1–2, scale-up 0, in-flight limit 1, timeout 600 ms")) {
         throw new IllegalStateException("The updated limits were not shown after Apply");
       }
-      checkPool(oldWorkers, 1, 2, 0);
-      if (oldWorkers.getActiveCount() != 4 || oldWorkers.getQueue().size() != 3 || oldWorkers.getQueue().offer(() -> {})) {
-        throw new IllegalStateException("Shrink did not preserve the running and queued HTTP requests");
+      if (queuedFormats(configurable) < 6) {
+        throw new IllegalStateException("Shrink removed accepted format requests");
+      }
+      System.out.println("TEST_MCP_LIMITS_APPLIED");
+      try {
+        await(state.resolve("resume-edt"));
+      }
+      catch (Exception e) {
+        throw new IllegalStateException(e);
       }
       configurable.disposeUIResources();
     });
@@ -144,16 +176,22 @@ public final class VerificationStarter implements ApplicationStarter {
     System.out.println("TEST_MCP_LIMITS_SAVED");
     await(state.resolve("expand-limits"));
     waitUntil(() -> oldWorkers.getPoolSize() <= 2, "excess HTTP workers to retire");
-    checkPool(oldWorkers, 1, 2, 1);
+    checkPool(oldWorkers, 1, 2, 2);
     application.invokeAndWait(() -> {
       var panel = configurable.createComponent();
-      var fields = components(panel, JTextField.class);
-      checkFields(fields, "1", "2", "1");
+      var fields = numericFields(panel);
+      checkFields(fields, "1", "2", "0", "1", "600");
       fields.get(0).setText("3");
       fields.get(1).setText("5");
-      fields.get(2).setText("6");
+      fields.get(2).setText("2");
+      fields.get(3).setText("9");
+      fields.get(4).setText("16000");
+      var accessKey = component(panel, JPasswordField.class);
+      accessKey.setText("invalid key");
+      expectInvalid(configurable, "MCP access key must contain 16–256 letters, digits, underscores or hyphens.");
+      accessKey.setText("integration_test_key_2026");
       apply(configurable);
-      if (!hasLabel(panel, "Workers 3–5, waiting queue 6")) {
+      if (!hasLabel(panel, "Workers 3–5, scale-up 2, in-flight limit 9, timeout 16000 ms")) {
         throw new IllegalStateException("The expanded limits were not shown after Apply");
       }
       configurable.disposeUIResources();
@@ -161,12 +199,12 @@ public final class VerificationStarter implements ApplicationStarter {
     if (workerPool(configurable) != oldWorkers) {
       throw new IllegalStateException("Expansion replaced the worker pool");
     }
-    checkPool(oldWorkers, 3, 5, 6);
+    checkPool(oldWorkers, 3, 5, 9);
     System.out.println("TEST_MCP_LIMITS_EXPANDED");
     await(state.resolve("disable-mcp"));
     application.invokeAndWait(() -> {
       var panel = configurable.createComponent();
-      checkFields(components(panel, JTextField.class), "3", "5", "6");
+      checkFields(numericFields(panel), "3", "5", "2", "9", "16000");
       var enabled = component(panel, JCheckBox.class);
       var copy = component(panel, JButton.class);
       var copyPath = components(panel, JButton.class).stream()
@@ -183,6 +221,13 @@ public final class VerificationStarter implements ApplicationStarter {
     if (!oldWorkers.isShutdown()) {
       throw new IllegalStateException("Disabling MCP retained the old pool");
     }
+    try {
+      oldWorkers.submit(() -> {});
+      throw new IllegalStateException("The stopped elastic pool accepted a new task");
+    }
+    catch (java.util.concurrent.RejectedExecutionException expected) {
+      // A stopped pool must not enqueue a Future that cannot run.
+    }
     StoreUtil.saveSettings(application, true);
     System.out.println("TEST_MCP_DISABLED");
     await(state.resolve("enable-mcp"));
@@ -198,7 +243,7 @@ public final class VerificationStarter implements ApplicationStarter {
       }
       enabled.setSelected(true);
       apply(configurable);
-      if (!hasLabel(panel, "Workers 3–5, waiting queue 6")) {
+      if (!hasLabel(panel, "Workers 3–5, scale-up 2, in-flight limit 9, timeout 16000 ms")) {
         throw new IllegalStateException("The restarted server did not show the new active limits");
       }
       copy.doClick();
@@ -214,20 +259,41 @@ public final class VerificationStarter implements ApplicationStarter {
       }
       configurable.disposeUIResources();
     });
-    checkPool(workerPool(configurable), 3, 5, 6);
+    checkPool(workerPool(configurable), 3, 5, 9);
     System.out.println("TEST_MCP_REENABLED");
   }
 
   private static ThreadPoolExecutor workerPool(Configurable configurable) throws ReflectiveOperationException {
-    // Inspect the real executor in the isolated IDE without exposing it through the plugin API.
+    var running = runningServer(configurable);
+    var workersField = running.getClass().getDeclaredField("workers");
+    workersField.setAccessible(true);
+    return (ThreadPoolExecutor) workersField.get(running);
+  }
+
+  private static Object runningServer(Configurable configurable) throws ReflectiveOperationException {
     var serverType = configurable.getClass().getClassLoader().loadClass("org.ijformat.mcp.LocalMcpServer");
     var server = ApplicationManager.getApplication().getService(serverType);
     var runningField = serverType.getDeclaredField("running");
     runningField.setAccessible(true);
-    var running = runningField.get(server);
-    var workersField = running.getClass().getDeclaredField("workers");
-    workersField.setAccessible(true);
-    return (ThreadPoolExecutor) workersField.get(running);
+    return runningField.get(server);
+  }
+
+  private static int queuedFormats(Configurable configurable) {
+    try {
+      var running = runningServer(configurable);
+      var formattingField = running.getClass().getDeclaredField("formatting");
+      formattingField.setAccessible(true);
+      var formatting = formattingField.get(running);
+      var pendingField = formatting.getClass().getDeclaredField("pending");
+      pendingField.setAccessible(true);
+      var pending = (java.util.Collection<?>) pendingField.get(formatting);
+      synchronized (pending) {
+        return pending.size();
+      }
+    }
+    catch (ReflectiveOperationException e) {
+      throw new IllegalStateException("Could not inspect the format queue", e);
+    }
   }
 
   private static void checkPool(ThreadPoolExecutor pool, int min, int max, int queueCapacity) {
@@ -251,6 +317,10 @@ public final class VerificationStarter implements ApplicationStarter {
         throw new IllegalStateException("Interrupted waiting for " + description, e);
       }
     }
+  }
+
+  private static List<JTextField> numericFields(Component panel) {
+    return components(panel, JTextField.class).stream().filter(field -> !(field instanceof JPasswordField)).toList();
   }
 
   private static void checkFields(List<JTextField> fields, String... expected) {

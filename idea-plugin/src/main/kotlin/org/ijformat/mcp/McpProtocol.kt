@@ -6,8 +6,6 @@ import com.google.gson.JsonNull
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.google.gson.JsonParseException
-import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.withTimeout
 
 internal object McpProtocol {
     private val gson = Gson()
@@ -28,6 +26,7 @@ internal object McpProtocol {
               "source": {"type": "string", "description": "Complete source text, up to 128 KiB of UTF-8."},
               "startLine": {"type": "integer", "minimum": 1, "description": "First line, inclusive and 1-based."},
               "endLine": {"type": "integer", "minimum": 1, "description": "Last line, inclusive and 1-based."},
+              "timeoutMs": {"type": "integer", "minimum": 1, "maximum": 120000, "description": "Override the default format request timeout in milliseconds."},
               "range": {
                 "type": "object",
                 "description": "Exact range with an inclusive start and an exclusive end. Lines and columns are 1-based. Each Unicode code point, including a tab, counts as one column.",
@@ -54,7 +53,13 @@ internal object McpProtocol {
 
     data class Reply(val status: Int, val body: String = "")
 
-    suspend fun handle(body: String, versionHeader: String?): Reply {
+    suspend fun handle(
+        body: String,
+        versionHeader: String?,
+        formatting: FormattingQueue,
+        received: Long,
+        defaultTimeoutMs: Int,
+    ): Reply {
         val input = try {
             JsonParser.parseString(body)
         } catch (_: JsonParseException) {
@@ -79,13 +84,19 @@ internal object McpProtocol {
             )
         }
         if (id == null) return Reply(202)
+        if (method != "tools/call" && deadline(received, defaultTimeoutMs) - System.nanoTime() <= 0) {
+            return error(id, FormattingFailure.QUEUE_TIMEOUT, "Request deadline expired")
+        }
         when (method) {
             "initialize" -> {
                 val requested = params?.asJsonObject?.string("protocolVersion")
                     ?: return error(id, -32602, "Expected protocolVersion")
                 return result(id, mapOf(
                     "protocolVersion" to if (requested in versions) requested else versions.first(),
-                    "capabilities" to mapOf("tools" to emptyMap<String, Any>()),
+                    "capabilities" to mapOf(
+                        "tools" to emptyMap<String, Any>(),
+                        "experimental" to mapOf("ij-format/request-timeout" to emptyMap<String, Any>()),
+                    ),
                     "serverInfo" to mapOf("name" to "ij-format", "version" to pluginVersion),
                 ))
             }
@@ -97,39 +108,54 @@ internal object McpProtocol {
                 val arguments = call.get("arguments")
                 if (arguments == null || !arguments.isJsonObject) return error(id, -32602, "Expected arguments")
                 val args = arguments.asJsonObject
+                val timeoutMs = if (args.has("timeoutMs")) {
+                    args.integer("timeoutMs")?.takeIf { it in WorkerLimits.TIMEOUTS }
+                        ?: return error(id, -32602, "Expected timeoutMs between 1 and 120000")
+                } else null
+                val keys = args.keySet() - "timeoutMs"
                 val exactRange = args.has("range")
-                val endpoints = if (exactRange && args.keySet() == setOf("language", "source", "range")) {
+                val endpoints = if (exactRange && keys == setOf("language", "source", "range")) {
                     args.get("range").takeIf { it.isJsonObject }?.asJsonObject
                         ?.takeIf { it.keySet() == setOf("startLine", "startColumn", "endLine", "endColumn") }
                         ?: return error(id, -32602, "Expected range with startLine, startColumn, endLine and endColumn")
-                } else if (!exactRange && args.keySet() == setOf("language", "source", "startLine", "endLine")) {
+                } else if (!exactRange && keys == setOf("language", "source", "startLine", "endLine")) {
                     args
                 } else {
                     return error(id, -32602, "Expected language, source and either startLine/endLine or range")
                 }
                 val language = args.string("language") ?: return error(id, -32602, "Expected language string")
                 val source = args.string("source") ?: return error(id, -32602, "Expected source string")
+                val bytes = source.toByteArray().size
+                if (bytes > 128 * 1024) return result(id, toolResult("Source exceeds 128 KiB", true))
                 val start = endpoints.integer("startLine") ?: return error(id, -32602, "Expected integer startLine")
                 val end = endpoints.integer("endLine") ?: return error(id, -32602, "Expected integer endLine")
                 val startColumn = if (exactRange) endpoints.integer("startColumn")
                     ?: return error(id, -32602, "Expected integer startColumn") else null
                 val endColumn = if (exactRange) endpoints.integer("endColumn")
                     ?: return error(id, -32602, "Expected integer endColumn") else null
+                val expiresAt = deadline(received, timeoutMs ?: defaultTimeoutMs)
                 val answer = try {
-                    val formatted = withTimeout(15_000) {
-                        IdeaFormatter.format(language, source, start, end, startColumn, endColumn)
+                    val formatted = formatting.format(bytes, expiresAt) { onStart ->
+                        IdeaFormatter.format(language, source, start, end, startColumn, endColumn, onStart)
                     }
                     toolResult(formatted, false)
                 } catch (failure: IllegalArgumentException) {
                     toolResult(failure.message ?: "Invalid formatting request", true)
-                } catch (_: TimeoutCancellationException) {
-                    toolResult("Formatting timed out waiting for IDEA", true)
+                } catch (failure: FormattingFailure) {
+                    return error(id, failure.code, failure.message.orEmpty())
                 }
-                return result(id, answer)
+                val reply = result(id, answer)
+                if (expiresAt - System.nanoTime() <= 0) {
+                    return error(id, FormattingFailure.FORMAT_TIMEOUT, "Request deadline expired")
+                }
+                return reply
             }
             else -> return error(id, -32601, "Method not found")
         }
     }
+
+    private fun deadline(received: Long, timeoutMs: Int) =
+        received + java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(timeoutMs.toLong())
 
     private fun JsonObject.string(name: String): String? =
         get(name)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString

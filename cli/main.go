@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -20,7 +21,7 @@ const usage = `Format Java or Kotlin with the running IntelliJ IDEA plugin and i
 Usage:
   ij-format [options] FILE...
   ij-format [options] - --language java|kotlin
-  ij-format status [--config PATH]
+  ij-format status [--config PATH] [--container]
 
 Selection (choose one):
   --lines FIRST:LAST         Format a 1-based line range, including both lines.
@@ -42,6 +43,8 @@ Input and connection:
   --language java|kotlin     Required for stdin. Overrides inference for one file.
   --config PATH              Use IDEA's connection file or saved Copy MCP JSON.
                              Auto-detected when exactly one standard config matches.
+  --timeout DURATION         Override the server format timeout per input (e.g. 3s).
+  --container                Allow host.docker.internal with an explicit --config.
   -h, --help                 Show this help.
   Start IDEA and enable the server under Settings > Tools > ij-format.
   Input must be UTF-8 and at most 128 KiB per file or stdin stream.
@@ -73,6 +76,8 @@ type options struct {
 	selection, mode  string
 	first, last      int
 	exact            *exactRange
+	timeout          time.Duration
+	container        bool
 }
 
 var linePattern = regexp.MustCompile(`^([1-9][0-9]*):([1-9][0-9]*)$`)
@@ -136,7 +141,7 @@ func parseFormat(args []string) (options, bool, error) {
 		}
 		flag, value, hasValue := strings.Cut(arg, "=")
 		switch flag {
-		case "--language", "--config", "--lines", "--range":
+		case "--language", "--config", "--lines", "--range", "--timeout":
 			if !hasValue {
 				if i+1 == len(args) || strings.HasPrefix(args[i+1], "-") {
 					return opt, false, fmt.Errorf("%s requires a value", flag)
@@ -150,6 +155,12 @@ func parseFormat(args []string) (options, bool, error) {
 					return opt, false, errors.New("--language must be java or kotlin")
 				}
 				opt.language = value
+			case "--timeout":
+				timeout, err := time.ParseDuration(value)
+				if err != nil || timeout < time.Millisecond || timeout > 2*time.Minute || timeout%time.Millisecond != 0 {
+					return opt, false, errors.New("--timeout must be a whole number of milliseconds between 1ms and 2m")
+				}
+				opt.timeout = timeout
 			case "--config":
 				if value == "" {
 					return opt, false, errors.New("--config requires a path")
@@ -160,13 +171,15 @@ func parseFormat(args []string) (options, bool, error) {
 					return opt, false, err
 				}
 			}
-		case "--help", "-h", "--whole-file", "--check", "--diff", "--write":
+		case "--help", "-h", "--whole-file", "--check", "--diff", "--write", "--container":
 			if hasValue {
 				return opt, false, fmt.Errorf("%s takes no value", flag)
 			}
 			switch flag {
 			case "--help", "-h":
 				return opt, true, nil
+			case "--container":
+				opt.container = true
 			case "--whole-file":
 				if err := opt.selectRange(flag, ""); err != nil {
 					return opt, false, err
@@ -180,6 +193,9 @@ func parseFormat(args []string) (options, bool, error) {
 		default:
 			return opt, false, fmt.Errorf("unknown option %s", flag)
 		}
+	}
+	if opt.container && opt.config == "" {
+		return opt, false, errors.New("--container requires an explicit --config")
 	}
 	if len(opt.files) == 0 {
 		return opt, false, errors.New("provide at least one FILE")
@@ -240,7 +256,7 @@ func runFormat(opt options, stdin io.Reader, stdout, stderr io.Writer) int {
 
 	getClient := func() (*mcpClient, error) {
 		if client == nil && connectionErr == nil {
-			client, connectionErr = connect(opt.config, opt.exact != nil)
+			client, connectionErr = connect(opt.config, opt.container, opt.exact != nil, opt.timeout)
 		}
 		return client, connectionErr
 	}
@@ -278,7 +294,7 @@ func formatInput(filename string, opt options, getClient func() (*mcpClient, err
 	if original != "" && !strings.HasSuffix(original, "\n") {
 		lineCount++
 	}
-	args := formatArguments{Source: original, Language: language}
+	args := formatArguments{Source: original, Language: language, TimeoutMs: opt.timeout.Milliseconds()}
 	switch opt.selection {
 	case "--lines":
 		if opt.last > lineCount {
@@ -351,10 +367,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 }
 
 func runStatus(args []string, stdout, stderr io.Writer) int {
-	const help = "Usage: ij-format status [--config PATH]\n\nCheck the IDEA MCP connection, authentication, and available formatting ranges.\n--config accepts IDEA's connection file or saved Copy MCP JSON.\n"
+	const help = "Usage: ij-format status [--config PATH] [--container]\n\nCheck the IDEA MCP connection, authentication, and available formatting ranges.\n--config accepts IDEA's connection file or saved Copy MCP JSON.\n"
 	flags := flag.NewFlagSet("status", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	config := flags.String("config", "", "path to the MCP connection file")
+	container := flags.Bool("container", false, "allow the container host address")
 	err := flags.Parse(args)
 	if errors.Is(err, flag.ErrHelp) {
 		fmt.Fprint(stdout, help)
@@ -368,26 +385,29 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprint(stderr, help)
 		return 2
 	}
-	if err := checkStatus(*config, stdout); err != nil {
+	if err := checkStatus(*config, *container, stdout); err != nil {
 		fmt.Fprintf(stderr, "ij-format status: %v\n", err)
 		return 2
 	}
 	return 0
 }
 
-func checkStatus(config string, stdout io.Writer) error {
-	client, err := connect(config, false)
+func checkStatus(config string, container bool, stdout io.Writer) error {
+	client, err := connect(config, container, false, 0)
 	if err != nil {
 		return err
 	}
 	defer client.close()
-	exact, err := client.formatCapability()
+	capabilities, err := client.formatCapability()
 	if err != nil {
 		return err
 	}
 	selections := "--lines, --whole-file"
-	if exact {
+	if capabilities.exact {
 		selections += ", --range"
+	}
+	if capabilities.timeout {
+		selections += "\nRequest timeout: --timeout"
 	}
 	_, err = fmt.Fprintf(stdout, "IDEA MCP reachable at %s\nProtocol: %s\nFormatting: %s\n",
 		client.url, client.headers.Get("MCP-Protocol-Version"), selections)

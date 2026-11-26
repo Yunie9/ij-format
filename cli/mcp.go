@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -72,9 +73,12 @@ func defaultConfig() (string, error) {
 	}
 }
 
-func loadConfig(path string) (connectionSettings, error) {
+func loadConfig(path string, container bool) (connectionSettings, error) {
 	var settings connectionSettings
 	if path == "" {
+		if container {
+			return settings, errors.New("--container requires an explicit --config")
+		}
 		var err error
 		path, err = defaultConfig()
 		if err != nil {
@@ -103,9 +107,13 @@ func loadConfig(path string) (connectionSettings, error) {
 	if !bearerPattern.MatchString(settings.Headers.Authorization) {
 		return settings, fmt.Errorf("connection file %q is missing a valid ij-format Bearer token. Use the file or Copy MCP JSON from %s", path, settingsLocation)
 	}
-	invalid := fmt.Errorf("connection file %q must point to http://127.0.0.1:<port>/mcp. Use the file from %s", path, settingsLocation)
+	host := "127.0.0.1"
+	if container {
+		host = "host.docker.internal"
+	}
+	invalid := fmt.Errorf("connection file %q must point to http://%s:<port>/mcp. Use the file from %s", path, host, settingsLocation)
 	address, err := url.Parse(settings.URL)
-	if err != nil || address.Scheme != "http" || address.Hostname() != "127.0.0.1" ||
+	if err != nil || address.Scheme != "http" || address.Hostname() != host ||
 		address.User != nil || address.EscapedPath() != "/mcp" || address.ForceQuery ||
 		address.RawQuery != "" || address.Fragment != "" {
 		return settings, invalid
@@ -118,22 +126,41 @@ func loadConfig(path string) (connectionSettings, error) {
 }
 
 type mcpClient struct {
-	http    *http.Client
-	url     string
-	headers http.Header
-	nextID  int
+	http          *http.Client
+	url           string
+	headers       http.Header
+	nextID        int
+	formatTimeout time.Duration
 }
 
-func connect(config string, requireExact bool) (*mcpClient, error) {
-	settings, err := loadConfig(config)
+func connect(config string, container, requireExact bool, timeout time.Duration) (*mcpClient, error) {
+	settings, err := loadConfig(config, container)
 	if err != nil {
 		return nil, err
 	}
 	dialer := &net.Dialer{Timeout: 2 * time.Second}
+	dial := dialer.DialContext
+	if container {
+		dial = func(ctx context.Context, network, address string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(address)
+			if err != nil {
+				return nil, err
+			}
+			addresses, err := net.DefaultResolver.LookupNetIP(ctx, "ip4", host)
+			if err != nil {
+				return nil, err
+			}
+			for _, ip := range addresses {
+				if ip.IsPrivate() || ip.IsLoopback() {
+					return dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+				}
+			}
+			return nil, errors.New("container host must resolve to a private IPv4 or loopback address")
+		}
+	}
 	client := &mcpClient{
 		http: &http.Client{
-			Transport: &http.Transport{DialContext: dialer.DialContext, DisableCompression: true},
-			Timeout:   25 * time.Second,
+			Transport: &http.Transport{DialContext: dial, DisableCompression: true},
 			CheckRedirect: func(*http.Request, []*http.Request) error {
 				return http.ErrUseLastResponse
 			},
@@ -146,11 +173,18 @@ func connect(config string, requireExact bool) (*mcpClient, error) {
 		},
 	}
 	err = client.initialize()
-	if err == nil && requireExact {
-		var exact bool
-		exact, err = client.formatCapability()
-		if err == nil && !exact {
+	if err == nil && (requireExact || timeout > 0) {
+		var supported formatCapabilities
+		supported, err = client.formatCapability()
+		if err == nil && requireExact && !supported.exact {
 			err = errors.New("the running IDEA plugin does not support --range. Update it or use --lines")
+		}
+		if err == nil && timeout > 0 {
+			if !supported.timeout {
+				err = errors.New("the running IDEA plugin does not support --timeout. Update it or omit --timeout")
+			} else {
+				client.formatTimeout = timeout + 5*time.Second
+			}
 		}
 	}
 	if err != nil {
@@ -191,7 +225,13 @@ func (c *mcpClient) request(method string, params, result any) error {
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequest(http.MethodPost, c.url, bytes.NewReader(data))
+	timeout := 25 * time.Second
+	if method == "tools/call" && c.formatTimeout > 0 {
+		timeout = c.formatTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url, bytes.NewReader(data))
 	if err != nil {
 		return err
 	}
@@ -210,6 +250,8 @@ func (c *mcpClient) request(method string, params, result any) error {
 		return fmt.Errorf("MCP authorization rejected (HTTP %d). Use the current configuration from %s", response.StatusCode, settingsLocation)
 	case http.StatusTooManyRequests, http.StatusServiceUnavailable:
 		return fmt.Errorf("MCP server is busy (HTTP %d)", response.StatusCode)
+	case http.StatusRequestTimeout:
+		return errors.New("MCP request timed out (HTTP 408)")
 	}
 	if result == nil {
 		if response.StatusCode != http.StatusAccepted {
@@ -256,7 +298,12 @@ func connectionError(err error) error {
 }
 
 func (c *mcpClient) initialize() error {
-	var result struct{ ProtocolVersion string }
+	var result struct {
+		ProtocolVersion string
+		Capabilities    struct {
+			Experimental map[string]json.RawMessage
+		}
+	}
 	err := c.request("initialize", map[string]any{
 		"protocolVersion": protocolVersions[0],
 		"capabilities":    struct{}{},
@@ -268,11 +315,18 @@ func (c *mcpClient) initialize() error {
 	if !slices.Contains(protocolVersions, result.ProtocolVersion) {
 		return errors.New("IDEA returned an unsupported MCP protocol version")
 	}
+	if _, supported := result.Capabilities.Experimental["ij-format/request-timeout"]; supported {
+		c.formatTimeout = 125 * time.Second
+	}
 	c.headers.Set("MCP-Protocol-Version", result.ProtocolVersion)
 	return c.request("notifications/initialized", nil, nil)
 }
 
-func (c *mcpClient) formatCapability() (bool, error) {
+type formatCapabilities struct {
+	exact, timeout bool
+}
+
+func (c *mcpClient) formatCapability() (formatCapabilities, error) {
 	var result struct {
 		Tools []struct {
 			Name        string
@@ -282,18 +336,19 @@ func (c *mcpClient) formatCapability() (bool, error) {
 		}
 	}
 	if err := c.request("tools/list", nil, &result); err != nil {
-		return false, err
+		return formatCapabilities{}, err
 	}
 	if result.Tools == nil {
-		return false, errors.New("invalid tool list from IDEA")
+		return formatCapabilities{}, errors.New("invalid tool list from IDEA")
 	}
 	for _, tool := range result.Tools {
 		if tool.Name == "ij_format_lines" {
 			_, exact := tool.InputSchema.Properties["range"]
-			return exact, nil
+			_, timeout := tool.InputSchema.Properties["timeoutMs"]
+			return formatCapabilities{exact: exact, timeout: timeout}, nil
 		}
 	}
-	return false, errors.New("the server does not expose ij_format_lines. Check that --config points to the ij-format plugin")
+	return formatCapabilities{}, errors.New("the server does not expose ij_format_lines. Check that --config points to the ij-format plugin")
 }
 
 type formatArguments struct {
@@ -302,6 +357,7 @@ type formatArguments struct {
 	StartLine int         `json:"startLine,omitempty"`
 	EndLine   int         `json:"endLine,omitempty"`
 	Range     *exactRange `json:"range,omitempty"`
+	TimeoutMs int64       `json:"timeoutMs,omitempty"`
 }
 
 func (c *mcpClient) format(arguments formatArguments) (string, error) {
