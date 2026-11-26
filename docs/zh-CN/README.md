@@ -13,38 +13,27 @@
 - IDEA 自带的 `format` 命令以文件或目录为单位，无法指定行列范围，并要求关闭正在运行的 IDEA 实例。 [IDEA 命令行格式化](https://www.jetbrains.com/help/idea/command-line-formatter.html)
 - IDEA 自带 MCP 的 `reformat_file` 需要已打开项目中的文件路径。实际使用时，响应慢或卡住也会打断 Agent 的编辑流程。 [IDEA MCP 格式化工具](https://www.jetbrains.com/help/idea/mcp-server.html#formatting-tools)
 
-ij-format 接收源码和选区，支持整行和精确行列范围。插件使用 IDEA 的全局风格，拒绝越出选区的改动。源码所属项目无需打开。CLI 复用运行中的 IDEA，每个 HTTP 请求最多等待 25 秒。
+ij-format 接收源码和选区，支持整行和精确行列范围。插件使用 IDEA 的全局风格，拒绝越出选区的改动。源码所属项目无需打开。CLI 复用运行中的 IDEA，并限制请求等待时间。 [超时与容器接入](CLI.md)
 
 ## 安装并连接
 
-1. 下载插件 ZIP，在 IDEA 的 **Settings → Plugins → ⚙ → Install Plugin from Disk** 中选择它，按提示重启。已在 IDEA 2026.1.1（`IU-261.23567.138`）验证。格式化 Kotlin 需启用 Kotlin 支持。 [下载插件 ZIP](https://github.com/Yunie9/ij-format/releases/download/v0.3.0/ij-format-mcp-0.3.0.zip) · [IDEA 安装说明](https://www.jetbrains.com/help/idea/managing-plugins.html#install_plugin_from_disk)
+1. 下载插件 ZIP，在 IDEA 的 **Settings → Plugins → ⚙ → Install Plugin from Disk** 中选择它，按提示重启。已在 IDEA 2026.1.1（`IU-261.23567.138`）验证。格式化 Kotlin 需启用 Kotlin 支持。 [下载插件 ZIP](https://github.com/Yunie9/ij-format/releases/latest) · [IDEA 安装说明](https://www.jetbrains.com/help/idea/managing-plugins.html#install_plugin_from_disk)
 2. 在 **Settings → Tools → ij-format** 确认服务状态为 **Running**。
-3. 在 macOS 或 Linux 上，以下命令会按 CPU 架构下载安装 CLI 到 `~/.local/bin`。将此目录加入 `PATH` 后即可直接运行 `ij-format`。Windows 用户请下载并解压对应架构的 ZIP，再把 `ij-format.exe` 所在目录加入 `PATH`。 [发布附件](https://github.com/Yunie9/ij-format/releases/tag/v0.3.0)
-
-   ```sh
-   (
-     set -eu
-     case "$(uname -s)" in
-       Darwin) os=darwin ;;
-       Linux) os=linux ;;
-       *) printf '%s\n' 'Use the Windows ZIP from GitHub Releases.' >&2; exit 1 ;;
-     esac
-     case "$(uname -m)" in
-       arm64|aarch64) arch=arm64 ;;
-       x86_64|amd64) arch=amd64 ;;
-       *) printf '%s\n' 'Unsupported CPU architecture.' >&2; exit 1 ;;
-     esac
-
-     tmp=$(mktemp -d)
-     trap 'rm -rf "$tmp"' EXIT
-     curl -fL "https://github.com/Yunie9/ij-format/releases/download/v0.3.0/ij-format-0.3.0-${os}-${arch}.zip" -o "$tmp/cli.zip"
-     unzip -p "$tmp/cli.zip" ij-format > "$tmp/ij-format"
-     mkdir -p "$HOME/.local/bin"
-     install -m 755 "$tmp/ij-format" "$HOME/.local/bin/ij-format"
-   )
-   ```
+3. 按下面的命令安装 CLI，或解压与系统和 CPU 匹配的 CLI ZIP，将二进制所在目录加入 `PATH`。
 
 4. **MCP 客户端** — 点击 **Copy MCP JSON**，把 `mcpServers.ij-format` 合并到兼容客户端，或使用其中的 `url` 和 `headers.Authorization` 手动配置 Streamable HTTP。
+
+### 各平台安装命令
+
+从同一 v0.4.0 或更新的 Release 下载对应脚本。运行插件安装命令前先退出 IDEA，安装后重启。也可在 IDEA 中手动安装通用的 `ij-format-mcp-<版本>.zip`。 [发布附件](https://github.com/Yunie9/ij-format/releases/latest)
+
+| 平台 | 安装 CLI | 安装 IDEA 插件 |
+| --- | --- | --- |
+| macOS | `sh install.sh cli 0.4.0` | `sh install.sh plugin 0.4.0` |
+| Linux | `sh install.sh cli 0.4.0` | `sh install.sh plugin 0.4.0` |
+| Windows（PowerShell 7） | `pwsh -NoProfile -File .\install.ps1 cli 0.4.0` | `pwsh -NoProfile -File .\install.ps1 plugin 0.4.0` |
+
+脚本会按系统和架构选择 CLI ZIP 并校验 SHA-256。手动下载时选 `darwin`、`linux` 或 `windows`，再按 CPU 选 `amd64`（Intel/AMD）或 `arm64`。第三个参数可指定安装目录的绝对路径。 [安装目录和升级说明](CLI.md#安装-cli)
 
 ## CLI 用法
 
@@ -89,13 +78,26 @@ CLI 指南介绍了范围规则、退出码和如何用 `--config` 选择 IDEA �
 - 支持 `java` 和 `kotlin`，行范围从 1 开始并包含首尾。0.3.0 可以用 `range` 按行列定义精确范围，结束位置不包含在选区内。输入上限 128 KiB，保留一致的 LF 或 CRLF。 [CLI 坐标规则](CLI.md)
 - 运行时使用 IDEA 的全局代码风格，即使打开项目也独立处理输入的源码。项目代码风格、EditorConfig、SDK 和 Classpath 不参与格式化。
 - 成功时返回完整文本，调用方自行决定如何使用结果。如果 IDEA 要改动选区外文本，工具返回错误，可以扩大选区后重试。
+- v0.4.0 可用 `timeoutMs` 覆盖默认请求时限（1–120000 毫秒），排队上限仍生效。错误码 `-32010` 表示繁忙，`-32011` 表示排队超时，`-32012` 表示执行超时。
 - 支持 MCP 协议 `2025-11-25`、`2025-06-18` 和 `2025-03-26`。
 
 ## 服务设置
 
-默认地址为 `http://127.0.0.1:49273/mcp` 。多个 IDEA 实例可分别在 VM options 设置端口，例如 `-Dijformat.mcp.port=49274`。复制的 JSON 含访问令牌，请妥善保管。 [隐私和本地数据](PRIVACY.md)
+默认地址为 `http://127.0.0.1:49273/mcp`。多个 IDEA 实例可分别在 VM options 设置端口，例如 `-Dijformat.mcp.port=49274`。复制的 JSON 含访问令牌，开发容器接入需显式启用。 [隐私和本地数据](PRIVACY.md) · [容器接入](CLI.md#docker-开发容器实验性)
 
-**HTTP workers** 默认最小 4、最大 4、等待队列 20。工作线程数可设为 1–32，最小值不得大于最大值，队列可设为 1–256。队列满后，线程池会按需扩到配置的最大值。点 **Apply** 立即更新运行中的服务，保留现有连接和已接收请求。缩容时，队列降到新上限以下后恢复接纳新任务。
+在 **Settings → Tools → ij-format** 中调整以下设置，点击 **Apply** 即可生效。调小队列时，已接收任务按原时限继续处理。IDEA 的原生格式化仍在事件线程上串行执行。
+
+| 设置 | 默认值及含义 |
+| --- | --- |
+| Minimum / Maximum workers | 2 / 8，范围 1–32。HTTP 工作线程的上下限 |
+| Scale-up threshold | 5，范围 0 到 HTTP 队列容量。达到此积压时可增加 HTTP 线程，0 表示线程忙时即可扩容 |
+| HTTP queue capacity | 20，范围 1–256。等待 HTTP 工作线程的任务上限 |
+| Formatting queue capacity | 20，范围 1–256。等待格式化的请求上限，另有 2 MiB 排队源码上限 |
+| Default request timeout / Maximum queue wait | 15,000 / 2,000 毫秒，每项可设 1–120,000。新请求使用新时限 |
+
+服务同时最多保留 64 个等待回包的 HTTP 请求，因此实际格式化积压可能先触及这一上限。
+
+**MCP access key** 默认自动生成。可填入 16–256 个英文字母、数字、下划线或连字符，无需填写 `Bearer` 前缀。清空并点 **Apply** 会生成新密钥。修改立即生效，旧密钥之后的请求会收到 HTTP 401。使用配置路径的 CLI 在下次启动时读取新密钥，保存过 JSON 的 MCP 客户端和容器需更新副本。 [本地存储说明](PRIVACY.md)
 
 ## 其他文档
 

@@ -2,6 +2,13 @@
 
 [简体中文](zh-CN/CHANGELOG.md) · [Documentation](../README.md)
 
+## 0.4.0
+
+- Configure the HTTP worker range, scale-up threshold, both queue capacities, and the MCP access key in IDEA.
+- Set request and queue timeouts in IDEA. Override the request timeout from CLI or MCP.
+- Try the experimental opt-in connection from a Docker development container to the host's IDEA.
+- Install or upgrade the CLI and plugin on macOS, Linux, or Windows with a release installer that verifies archive checksums.
+
 ## 0.3.0
 
 - Add a Go CLI for files and standard input, with unified diff, check, and write modes.

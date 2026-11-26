@@ -35,6 +35,13 @@ jobs:
       - run: go vet ./...
       - run: go test ./...
       - run: go build ./...
+      - name: Test installer
+        if: matrix.os != 'windows-latest' && matrix.go-version == 'stable'
+        run: python3 ../integration-tests/test-installer.py
+      - name: Test PowerShell installer
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: ../integration-tests/test-installer.ps1
 
   plugin:
     runs-on: ubuntu-latest
@@ -68,6 +75,32 @@ jobs:
           path: idea-plugin/build/distributions/ij-format-mcp-*.zip
           if-no-files-found: error
           retention-days: 14
+
+  windows-installer:
+    name: Install packaged CLI and plugin on Windows
+    needs: plugin
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+          cache-dependency-path: cli/go.sum
+      - uses: actions/download-artifact@v8
+        with:
+          name: idea-plugin
+          path: installer-assets
+      - name: Install and verify both packages
+        shell: pwsh
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          $archive = Get-ChildItem -LiteralPath installer-assets -Filter 'ij-format-mcp-*.zip'
+          if (@($archive).Count -ne 1) { throw 'Expected one verified plugin ZIP.' }
+          ./integration-tests/test-installer.ps1 -PluginArchive $archive.FullName
 
   package-cli:
     name: Package release CLI
@@ -130,7 +163,7 @@ jobs:
 
   draft-release:
     name: Create GitHub Release draft
-    needs: [plugin, package-cli]
+    needs: [plugin, package-cli, windows-installer]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -170,9 +203,11 @@ jobs:
             for archive in "${archives[@]}"; do
               unzip -tq "$archive"
             done
-            sha256sum "${archives[@]}" > SHA256SUMS
+            cp ../scripts/install.sh ../scripts/install.ps1 .
+            sha256sum "${archives[@]}" install.sh install.ps1 > SHA256SUMS
             sha256sum --check SHA256SUMS
           )
+          python3 integration-tests/test-installer.py --assets release-assets --version "$version"
 
           notes="$RUNNER_TEMP/release-notes.md"
           awk -v heading="## $version" '
@@ -198,4 +233,4 @@ jobs:
           fi
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft \
             --title "$TAG" --notes-file "$RUNNER_TEMP/release-notes.md" \
-            release-assets/*.zip release-assets/SHA256SUMS
+            release-assets/*.zip release-assets/install.sh release-assets/install.ps1 release-assets/SHA256SUMS

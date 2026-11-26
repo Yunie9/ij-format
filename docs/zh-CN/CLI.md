@@ -2,13 +2,23 @@
 
 [English](../CLI.md) · [文档首页](README.md)
 
-CLI 通过本地 Streamable HTTP 把 UTF-8 源码、语言和选区发送给运行中的 IDEA 插件。IDEA 停在欢迎页也能按当前全局代码风格格式化。精确列范围需要插件 0.3.0，行范围和整文件格式化也兼容 0.2.0。
+CLI 通过本地 Streamable HTTP 把 UTF-8 源码、语言和选区发送给运行中的 IDEA 插件。IDEA 停在欢迎页也能按当前全局代码风格格式化。精确列范围需要插件 0.3.0 或更新版本，行范围和整文件格式化也兼容 0.2.0。
 
 ## 安装 CLI
 
-macOS 或 Linux 可以使用 README 中的安装命令。Windows 用户解压对应架构的 ZIP 后，将 `ij-format.exe` 所在目录加入 `PATH`。运行发布包无需安装 Go、Python 或 Gradle。 [安装与下载](README.md#安装并连接)
+解压对应操作系统和 CPU 架构的 ZIP，将二进制所在目录加入 `PATH`。运行发布包无需安装 Go、Python 或 Gradle。 [安装与下载](README.md#安装并连接)
 
 如需从源码构建，见[贡献指南](CONTRIBUTING.md#go-cli)。
+
+从 v0.4.0 起，可从 Release 下载 Unix 脚本 `install.sh` 或 PowerShell 7 脚本 `install.ps1`。 [按平台区分的安装命令](README.md#各平台安装命令)
+
+| 平台 | CLI 默认目录 | IDEA 2026.1 默认插件目录 |
+| --- | --- | --- |
+| macOS | `~/.local/bin` | `~/Library/Application Support/JetBrains/IntelliJIdea2026.1/plugins` |
+| Linux | `~/.local/bin` | `${XDG_DATA_HOME:-~/.local/share}/JetBrains/IntelliJIdea2026.1` |
+| Windows | `%LOCALAPPDATA%\ij-format\bin` | `%APPDATA%\JetBrains\IntelliJIdea2026.1\plugins` |
+
+将 CLI 目录加入 `PATH`。升级时传入新版本号，卸载 CLI 时删除二进制。自定义目录可通过第三个参数指定，路径有空格时加引号。安装或升级插件前先退出 IDEA。
 
 ## 首次连接
 
@@ -29,6 +39,8 @@ printf 'class Demo {\n  val n=1\n}\n' | ij-format --config "$config" - --languag
 
 对已有文件，用 `--lines` 或 `--range` 格式化改动的范围。用 `--write` 写回，或按需用 `--diff` 预览。
 
+用 `--timeout 3s` 覆盖插件的默认时限，每份输入单独计时，支持 1 毫秒到 2 分钟。队列等待上限仍然生效。队列满或超时返回退出码 `2`。插件 0.4.0 默认请求时限为 15 秒，最多排队 2 秒，包含等待 IDEA 事件线程的时间。可在 **Settings → Tools → ij-format** 调整。
+
 ```sh
 ij-format Foo.java --lines 12:38
 ij-format Foo.java --range 12:5-14:18
@@ -46,7 +58,16 @@ ij-format Foo.java Bar.kt --whole-file --check
 - 单个输入默认输出完整的格式化结果。输出模式最多选一种。`--diff` 显示差异。`--check` 列出需要改动的输入，标准输入显示为 `-`。`--write` 写回发生改动的普通文件，并保留 Unix 权限位。处理多个文件时必须选择输出模式，CLI 按各文件的扩展名识别语言。
 - 退出码为 `0`（成功）、`1`（`--check` 发现需要改动的文件）、`2`（参数、文件、连接或格式化失败）。错误写到 stderr。批次会按顺序继续处理其他输入，任何输入失败时批次返回 `2`。
 
-一个批次只握手一次，顺序处理输入，并在服务器保持连接时复用 HTTP 连接。CLI 对每个 HTTP 请求最多等待 25 秒。如果 Agent 的 shell 禁止访问本地端口，CLI 会报连接权限错误，Agent 可以使用已配置的 MCP 工具。
+一个批次只握手一次，顺序处理输入，并在服务器保持连接时复用 HTTP 连接。连旧版插件时，每个 HTTP 请求最多等待 25 秒。连接 0.4.0 时，格式化请求的客户端等待时限是服务端允许的最大时限加 5 秒。显式指定 `--timeout` 时，按指定时限加 5 秒。
+
+## Docker 开发容器（实验性）
+
+在宿主机的 IDEA 中添加自定义 VM 参数，然后重启 IDEA。
+
+- macOS Docker Desktop 先使用 `-Dijformat.mcp.container.bind=127.0.0.1`。
+- Linux Docker Engine 使用宿主机 Docker 网桥的私有 IPv4 地址。启动容器时加 `--add-host=host.docker.internal:host-gateway`，确认它解析到对应网桥。
+
+在 IDEA 使用 **Copy MCP JSON**，将配置副本中 URL 的主机改为 `host.docker.internal`，保留端口和令牌。将副本只读挂载到容器，避免写入代码仓库或镜像。MCP 客户端可直接使用该配置。CLI 运行 `ij-format status --container --config /run/secrets/ij-format.json` 验证连接，格式化时也带上这两个参数。插件保留宿主机回环端点，两种连接都需要令牌。请只用于可信的本机开发容器。
 
 ## 集成测试
 

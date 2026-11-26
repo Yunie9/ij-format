@@ -51,7 +51,7 @@ def configure(state):
     (project / ".editorconfig").write_text("root = true\n[*]\nindent_style = space\nindent_size = 12\n")
 
 
-def launch_args(idea, state, *, welcome=False, project_first=False):
+def launch_args(idea, state, *, welcome=False, project_first=False, container_bind=None):
     product = json.loads((idea / "Resources/product-info.json").read_text())
     launch = product["launch"][0]
     java = (idea / "Resources" / launch["javaExecutablePath"]).resolve()
@@ -76,6 +76,8 @@ def launch_args(idea, state, *, welcome=False, project_first=False):
     settings.extend(f"-D{key}={state / directory}" for key, directory in folders.items())
     settings.extend(f"-Djb.mapper.configuration.url{suffix}={local_map.as_uri()}"
                     for suffix in ("", ".africa", ".americas", ".apac", ".china", ".europe", ".middle_east", ".oceania"))
+    if container_bind:
+        settings.append(f"-Dijformat.mcp.container.bind={container_bind}")
     args = []
     if welcome:
         settings.append("-Djb.consents.confirmation.enabled=false")
@@ -189,10 +191,12 @@ def verify_live_limits(state, worker, log_path, client):
     requests = []
     (state / "occupy-workers").touch()
     wait_for(worker, log_path, "TEST_MCP_EDT_HELD")
+    expired = client.rpc("tools/call", {"name": "ij_format_lines", "arguments": {
+        "language": "java", "source": "class Demo {}", "startLine": 1, "endLine": 1, "timeoutMs": 50,
+    }})
+    assert expired["error"]["code"] == -32011, expired
     with ExitStack() as stack:
         for request_id in range(1, 8):
-            if request_id == 5:
-                wait_for(worker, log_path, "TEST_MCP_WORKERS_BUSY")
             language, line, expected_line = (
                 ("java", "int value=1;", "int value = 1;") if request_id % 2
                 else ("kotlin", "val value=1", "val value = 1")
@@ -208,8 +212,17 @@ def verify_live_limits(state, worker, log_path, client):
             connection.request("POST", address.path, body, client.headers)
             requests.append((connection, connection.sock, source.replace(line, expected_line)))
 
+        wait_for(worker, log_path, "TEST_MCP_LIMITS_APPLIED")
+        assert client.rpc("ping")["result"] == {}
+        busy = client.rpc("tools/call", {"name": "ij_format_lines", "arguments": {
+            "language": "java", "source": "class Demo {}", "startLine": 1, "endLine": 1,
+        }})
+        assert busy["error"]["code"] == -32010, busy
+        (state / "resume-edt").touch()
         wait_for(worker, log_path, "TEST_MCP_LIMITS_SAVED")
-        for name, value in (("minWorkers", 1), ("maxWorkers", 2), ("queueCapacity", 1)):
+        for name, value in (("minWorkers", 1), ("maxWorkers", 2), ("queueCapacity", 1),
+                            ("scaleThreshold", 0), ("httpQueueCapacity", 1),
+                            ("timeoutMs", 16000), ("queueTimeoutMs", 3000)):
             wait_for(worker, persisted, f'name="{name}" value="{value}"')
         for request_id, (connection, socket, expected) in enumerate(requests, 1):
             with connection.getresponse() as response:
@@ -219,16 +232,24 @@ def verify_live_limits(state, worker, log_path, client):
                 assert not result["isError"] and result["content"][0]["text"] == expected, result
             assert connection.sock is socket
 
+        assert config.read_bytes() == connection_file
         (state / "expand-limits").touch()
         wait_for(worker, log_path, "TEST_MCP_LIMITS_EXPANDED")
         connection, socket, _ = requests[0]
-        connection.request("POST", address.path, '{"jsonrpc":"2.0","id":8,"method":"ping"}', client.headers)
+        ping = '{"jsonrpc":"2.0","id":8,"method":"ping"}'
+        connection.request("POST", address.path, ping, client.headers)
+        with connection.getresponse() as response:
+            assert response.status == 401
+            response.read()
+        rotated = json.loads(config.read_text())
+        assert rotated["headers"]["Authorization"] == "Bearer integration_test_key_2026"
+        client.headers.update(rotated["headers"])
+        connection.request("POST", address.path, ping, client.headers)
         with connection.getresponse() as response:
             assert response.status == 200 and json.load(response)["id"] == 8
         assert connection.sock is socket
-        assert config.read_bytes() == connection_file
-    print("PASS Apply shrinks with 4 running and 3 queued Java/Kotlin requests; all complete, "
-          "then live expansion preserves the same TCP connection and credentials", flush=True)
+        assert config.stat().st_mode & 0o777 == 0o600
+    print("PASS independent queue limits and live key rotation preserve existing TCP connections", flush=True)
 
 
 def test(idea, out, plugin_archive, cli=None):
@@ -297,7 +318,8 @@ def test(idea, out, plugin_archive, cli=None):
 def test_startup(idea, out, plugin_archive, *, welcome):
     scenario = "welcome" if welcome else "project-first"
     log_path = out / f"{scenario}.log"
-    with run_idea(idea, log_path, plugin_archive, welcome=welcome, project_first=not welcome) as (state, worker):
+    with run_idea(idea, log_path, plugin_archive, welcome=welcome, project_first=not welcome,
+                  container_bind="127.0.0.1" if welcome else None) as (state, worker):
         marker = "TEST_WELCOME_OPEN_PROJECTS 0" if welcome else "TEST_PROJECT_INDENT 10"
         wait_for(worker, log_path, marker)
         wait_for(worker, state / "logs/idea.log", "ij-format MCP ready")
@@ -305,6 +327,7 @@ def test_startup(idea, out, plugin_archive, *, welcome):
         client.initialize()
         context = "IDEA Welcome screen with zero open projects" if welcome else "project opened without a welcome event"
         exercise(client, 2, context)
+        verify_container_host(client, enabled=welcome)
         if not welcome:
             (state / "finish").touch()
             assert worker.wait(timeout=15) == 0
@@ -344,6 +367,22 @@ def verify_access(client):
         assert error.code == 400 and reply["error"]["code"] == -32022, reply
         assert "2025-11-25" in reply["error"]["data"]["supported"], reply
     print("PASS protected local HTTP endpoint, 0600 config and supported protocol negotiation", flush=True)
+
+
+def verify_container_host(client, *, enabled):
+    port = urlsplit(client.url).port
+    headers = dict(client.headers, Host=f"host.docker.internal:{port}")
+    body = b'{"jsonrpc":"2.0","id":1,"method":"ping"}'
+    if enabled:
+        with urlopen(Request(client.url, body, headers), timeout=5) as response:
+            assert json.load(response)["result"] == {}
+        headers.pop("Authorization")
+    try:
+        with urlopen(Request(client.url, body, headers), timeout=5):
+            raise AssertionError("The container host was accepted without opt-in or authentication")
+    except HTTPError as error:
+        assert error.code == (401 if enabled else 403), error
+    print(f"PASS container host header with opt-in {enabled}", flush=True)
 
 
 def exercise(client, width, context):

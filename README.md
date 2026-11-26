@@ -13,38 +13,27 @@ For codebases already formatted in IDEA, targeted formatting keeps small edits i
 - IDEA’s built-in `format` takes files or directories and requires other IDEA instances to be closed. It has no line or column selection. [IDEA command-line formatter](https://www.jetbrains.com/help/idea/command-line-formatter.html)
 - IDEA’s MCP `reformat_file` needs a path in an open project. Slow or stalled calls also interrupted our agent workflow. [IDEA MCP formatting tools](https://www.jetbrains.com/help/idea/mcp-server.html#formatting-tools)
 
-ij-format takes source text and a line range or exact line-and-column selection. The plugin uses the active IDE-wide scheme and rejects changes outside the selection. The source project can stay closed. The CLI reuses the running IDEA instance and times out each HTTP request after 25 seconds.
+ij-format takes source text and a line range or exact line-and-column selection. The plugin uses the active IDE-wide scheme and rejects changes outside the selection. The source project can stay closed. The CLI reuses the running IDEA instance and applies request deadlines. [Timeouts and container setup](docs/CLI.md)
 
 ## Quick start
 
-1. Download the plugin ZIP. In IDEA, select **Settings → Plugins → ⚙ → Install Plugin from Disk**, choose the ZIP, and restart if prompted. Verified on IDEA 2026.1.1 (build `IU-261.23567.138`). Enable Kotlin support to format Kotlin. [Download the plugin ZIP](https://github.com/Yunie9/ij-format/releases/download/v0.3.0/ij-format-mcp-0.3.0.zip) · [IDEA installation help](https://www.jetbrains.com/help/idea/managing-plugins.html#install_plugin_from_disk)
+1. Download the plugin ZIP. In IDEA, select **Settings → Plugins → ⚙ → Install Plugin from Disk**, choose the ZIP, and restart if prompted. Verified on IDEA 2026.1.1 (build `IU-261.23567.138`). Enable Kotlin support to format Kotlin. [Download the plugin ZIP](https://github.com/Yunie9/ij-format/releases/latest) · [IDEA installation help](https://www.jetbrains.com/help/idea/managing-plugins.html#install_plugin_from_disk)
 2. Check for **Running** in **Settings → Tools → ij-format**.
-3. On macOS or Linux, install the CLI for your CPU into `~/.local/bin`. Add that directory to your `PATH` to run `ij-format` by name. On Windows, extract the matching ZIP and add the directory containing `ij-format.exe` to your `PATH`. [Release downloads](https://github.com/Yunie9/ij-format/releases/tag/v0.3.0)
-
-   ```sh
-   (
-     set -eu
-     case "$(uname -s)" in
-       Darwin) os=darwin ;;
-       Linux) os=linux ;;
-       *) printf '%s\n' 'Use the Windows ZIP from GitHub Releases.' >&2; exit 1 ;;
-     esac
-     case "$(uname -m)" in
-       arm64|aarch64) arch=arm64 ;;
-       x86_64|amd64) arch=amd64 ;;
-       *) printf '%s\n' 'Unsupported CPU architecture.' >&2; exit 1 ;;
-     esac
-
-     tmp=$(mktemp -d)
-     trap 'rm -rf "$tmp"' EXIT
-     curl -fL "https://github.com/Yunie9/ij-format/releases/download/v0.3.0/ij-format-0.3.0-${os}-${arch}.zip" -o "$tmp/cli.zip"
-     unzip -p "$tmp/cli.zip" ij-format > "$tmp/ij-format"
-     mkdir -p "$HOME/.local/bin"
-     install -m 755 "$tmp/ij-format" "$HOME/.local/bin/ij-format"
-   )
-   ```
+3. Install the CLI using the commands below, or extract the ZIP for your OS and CPU and add the binary’s directory to your `PATH`.
 
 4. For an MCP client, click **Copy MCP JSON** and use the copied `mcpServers.ij-format` entry. To connect manually over Streamable HTTP, use the entry's `url` and `headers.Authorization`.
+
+### Installation commands by platform
+
+Download the script from the same v0.4.0 or later release. Quit IDEA before running the plugin command and start it again afterward. For manual installation, use the same `ij-format-mcp-<version>.zip` on every platform. [Release assets](https://github.com/Yunie9/ij-format/releases/latest)
+
+| Platform | Install the CLI | Install the IDEA plugin |
+| --- | --- | --- |
+| macOS | `sh install.sh cli 0.4.0` | `sh install.sh plugin 0.4.0` |
+| Linux | `sh install.sh cli 0.4.0` | `sh install.sh plugin 0.4.0` |
+| Windows (PowerShell 7) | `pwsh -NoProfile -File .\install.ps1 cli 0.4.0` | `pwsh -NoProfile -File .\install.ps1 plugin 0.4.0` |
+
+The installers select the CLI ZIP for the host and verify its SHA-256 checksum. For manual downloads, select `darwin`, `linux`, or `windows`, then `amd64` for Intel/AMD or `arm64` for ARM. Pass an absolute directory as the third argument to override the default. [Install locations and upgrades](docs/CLI.md#install-the-cli)
 
 ## CLI usage
 
@@ -87,13 +76,26 @@ Call `ij_format_lines` with the full source, language, and selection.
 - Use `java` or `kotlin`. Line ranges are 1-based and inclusive. For an exact selection, replace the two line fields with `"range": {"startLine": 12, "startColumn": 5, "endLine": 14, "endColumn": 18}`. Columns count Unicode code points from 1 and the end is exclusive. [Coordinate rules](docs/CLI.md)
 - The tool accepts up to 128 KiB of UTF-8 source and preserves uniform LF or CRLF line endings. It uses the active IDE-wide scheme and works from the supplied source text without project-level style, EditorConfig, SDK, or classpath.
 - The result is the complete formatted text. If IDEA would change text outside the selection, the tool returns an error. Widen the range and retry if needed.
+- In v0.4.0, optional `timeoutMs` overrides the default deadline (1–120,000 ms). The queue wait limit still applies. Error codes are `-32010` for busy, `-32011` for queue timeout, and `-32012` for execution timeout.
 - Supported MCP versions are `2025-11-25`, `2025-06-18`, and `2025-03-26`.
 
 ## Server settings
 
-The default endpoint is `http://127.0.0.1:49273/mcp`. Set `-Dijformat.mcp.port=49274` in IDEA's VM options to use a different port. The server listens only on loopback and the copied JSON contains a local access token. [Privacy and local data](docs/PRIVACY.md)
+The default endpoint is `http://127.0.0.1:49273/mcp`. Set `-Dijformat.mcp.port=49274` in IDEA's VM options to use a different port. The copied JSON contains an access token. Developer container access is opt-in. [Privacy and local data](docs/PRIVACY.md) · [Container setup](docs/CLI.md#docker-development-containers-experimental)
 
-The HTTP pool defaults to 4 minimum workers, 4 maximum workers, and 20 waiting slots. Configure 1–32 workers (minimum ≤ maximum) and 1–256 waiting slots. Extra workers start when the queue fills. **Apply** updates a running server while keeping accepted requests and connections. When shrinking, the queue accepts new work once it drops below the new limit.
+Open **Settings → Tools → ij-format** and click **Apply** to update the running server. Lowering a queue limit preserves accepted work and its deadlines. IDEA still runs native formatting serially on its event dispatch thread.
+
+| Setting | Default and behavior |
+| --- | --- |
+| Minimum / Maximum workers | 2 / 8, each from 1 to 32. Bounds the HTTP worker pool |
+| Scale-up threshold | 5, from 0 to the HTTP queue capacity. Allows adding workers at this backlog. At 0, the pool can grow as soon as its workers are busy |
+| HTTP queue capacity | 20, from 1 to 256. Caps tasks waiting for an HTTP worker |
+| Formatting queue capacity | 20, from 1 to 256. Caps requests waiting for formatting, with a separate 2 MiB limit on queued source |
+| Default request timeout / Maximum queue wait | 15,000 / 2,000 ms, each from 1 to 120,000. Changes apply to new requests |
+
+The server also caps HTTP requests awaiting a response at 64, which can limit the effective formatting backlog.
+
+The **MCP access key** is generated by default. Enter 16–256 ASCII letters, digits, underscores, or hyphens to set your own key. Omit the `Bearer` prefix. Clear the field and click **Apply** to generate a new key. New requests using the old key receive HTTP 401. The CLI reads the updated file on its next invocation. Update saved MCP JSON and container copies after rotating the key. [Local storage details](docs/PRIVACY.md)
 
 ## Documentation
 

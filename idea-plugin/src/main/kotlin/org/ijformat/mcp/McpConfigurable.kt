@@ -18,6 +18,7 @@ import javax.swing.JButton
 import javax.swing.JCheckBox
 import javax.swing.JComponent
 import javax.swing.JLabel
+import javax.swing.JPasswordField
 import javax.swing.JTextField
 
 internal data class McpConnection(val url: String, val headers: Map<String, String>) {
@@ -33,34 +34,66 @@ internal class McpSettings : SimplePersistentStateComponent<McpSettings.Settings
         var minWorkers by property(WorkerLimits.DEFAULT.minWorkers)
         var maxWorkers by property(WorkerLimits.DEFAULT.maxWorkers)
         var queueCapacity by property(WorkerLimits.DEFAULT.queueCapacity)
+        var httpQueueCapacity by property(0)
+        var scaleThreshold by property(-1)
+        var timeoutMs by property(WorkerLimits.DEFAULT.timeoutMs)
+        var queueTimeoutMs by property(WorkerLimits.DEFAULT.queueTimeoutMs)
 
-        fun workerLimits() = WorkerLimits(minWorkers, maxWorkers, queueCapacity)
+        fun workerLimits(): WorkerLimits {
+            val httpCapacity = httpQueueCapacity.takeUnless { it == 0 } ?: queueCapacity
+            return WorkerLimits(minWorkers, maxWorkers, queueCapacity, timeoutMs, queueTimeoutMs,
+                httpCapacity, scaleThreshold.takeUnless { it == -1 } ?: (httpCapacity / 4).coerceAtLeast(1))
+        }
 
         fun setWorkerLimits(limits: WorkerLimits) {
             minWorkers = limits.minWorkers
             maxWorkers = limits.maxWorkers
             queueCapacity = limits.queueCapacity
+            httpQueueCapacity = limits.httpQueueCapacity
+            scaleThreshold = limits.scaleThreshold
+            timeoutMs = limits.timeoutMs
+            queueTimeoutMs = limits.queueTimeoutMs
         }
     }
 }
 
-internal data class WorkerLimits(val minWorkers: Int, val maxWorkers: Int, val queueCapacity: Int) {
+internal data class WorkerLimits(
+    val minWorkers: Int,
+    val maxWorkers: Int,
+    val queueCapacity: Int,
+    val timeoutMs: Int,
+    val queueTimeoutMs: Int,
+    val httpQueueCapacity: Int,
+    val scaleThreshold: Int,
+) {
     fun validate() {
         require(minWorkers in WORKERS && maxWorkers in WORKERS) { "Worker counts must be between 1 and 32." }
         require(minWorkers <= maxWorkers) { "Minimum workers must be at most maximum workers." }
-        require(queueCapacity in QUEUE) { "Waiting queue capacity must be between 1 and 256." }
+        require(queueCapacity in QUEUE) { "Formatting queue capacity must be between 1 and 256." }
+        require(httpQueueCapacity in QUEUE) { "HTTP queue capacity must be between 1 and 256." }
+        require(scaleThreshold in 0..httpQueueCapacity) {
+            "Scale-up threshold must be between 0 and the HTTP queue capacity."
+        }
+        require(timeoutMs in TIMEOUTS && queueTimeoutMs in TIMEOUTS) {
+            "Timeouts must be between 1 and 120000 ms."
+        }
     }
 
-    fun summary() = "Workers $minWorkers–$maxWorkers, waiting queue $queueCapacity"
+    fun summary() = "Workers $minWorkers–$maxWorkers, scale-up $scaleThreshold, HTTP queue $httpQueueCapacity, formatting queue $queueCapacity"
 
     companion object {
         private val WORKERS = 1..32
         private val QUEUE = 1..256
-        val DEFAULT = WorkerLimits(4, 4, 20)
+        val TIMEOUTS = 1..120_000
+        val DEFAULT = WorkerLimits(2, 8, 20, 15_000, 2_000, 20, 5)
     }
 }
 
 class McpConfigurable : Configurable {
+    private var accessKey: JPasswordField? = null
+    private var savedKey = ""
+    private var httpQueueCapacity: JTextField? = null
+    private var scaleThreshold: JTextField? = null
     private var enabled: JCheckBox? = null
     private var status: JLabel? = null
     private var copy: JButton? = null
@@ -68,6 +101,8 @@ class McpConfigurable : Configurable {
     private var minWorkers: JTextField? = null
     private var maxWorkers: JTextField? = null
     private var queueCapacity: JTextField? = null
+    private var timeoutMs: JTextField? = null
+    private var queueTimeoutMs: JTextField? = null
     private var activeLimits: JLabel? = null
     private val settings get() = service<McpSettings>().state
     private val server get() = service<LocalMcpServer>()
@@ -93,29 +128,52 @@ class McpConfigurable : Configurable {
                 CopyPasteManager.getInstance().setContents(StringSelection(LocalMcpServer.connectionFile().toString()))
             }.component
         }.rowComment("Run ij-format status to check the connection. If several IDEA versions are detected, pass this path with --config.")
+        row("MCP access key:") {
+            accessKey = cell(JPasswordField(24)).component
+        }.rowComment("Use 16–256 letters, digits, underscores or hyphens. Clear and Apply to generate a new key.")
         group("HTTP workers") {
             row("Minimum workers:") {
                 minWorkers = textField().component.apply { columns = 6 }
             }
             row("Maximum workers:") {
                 maxWorkers = textField().component.apply { columns = 6 }
-            }.rowComment("Additional workers start when the waiting queue fills.")
-            row("Waiting queue capacity:") {
-                queueCapacity = textField().component.apply { columns = 6 }
+            }
+            row("Scale-up threshold:") {
+                scaleThreshold = textField().component.apply { columns = 6 }
+            }.rowComment("Pending HTTP tasks that trigger adding workers.")
+            row("HTTP queue capacity:") {
+                httpQueueCapacity = textField().component.apply { columns = 6 }
             }.rowComment("Apply updates the running server. Already queued requests are kept when the limit is lowered.")
             row("Active limits:") {
                 activeLimits = label("").component
             }
+        }
+        group("Formatting queue and time limits") {
+            row("Formatting queue capacity:") {
+                queueCapacity = textField().component.apply { columns = 6 }
+            }
+            row("Default request timeout (ms):") {
+                timeoutMs = textField().component.apply { columns = 6 }
+            }
+            row("Maximum queue wait (ms):") {
+                queueTimeoutMs = textField().component.apply { columns = 6 }
+            }.rowComment("Includes waiting for IDEA's event dispatch thread. Applies to new requests.")
         }
     }.also { reset() }
 
     override fun isModified(): Boolean {
         val selected = enabled?.isSelected ?: return false
         val state = settings
-        return selected != state.enabled ||
+        val limits = state.workerLimits()
+        return enteredKey() != savedKey ||
+            httpQueueCapacity?.text?.trim()?.toIntOrNull() != limits.httpQueueCapacity ||
+            scaleThreshold?.text?.trim()?.toIntOrNull() != limits.scaleThreshold ||
+            selected != state.enabled ||
             minWorkers?.text?.trim()?.toIntOrNull() != state.minWorkers ||
             maxWorkers?.text?.trim()?.toIntOrNull() != state.maxWorkers ||
-            queueCapacity?.text?.trim()?.toIntOrNull() != state.queueCapacity
+            queueCapacity?.text?.trim()?.toIntOrNull() != state.queueCapacity ||
+            timeoutMs?.text?.trim()?.toIntOrNull() != state.timeoutMs ||
+            queueTimeoutMs?.text?.trim()?.toIntOrNull() != state.queueTimeoutMs
     }
 
     override fun apply() {
@@ -124,30 +182,47 @@ class McpConfigurable : Configurable {
             val limits = WorkerLimits(
                 readInt(minWorkers, "Minimum workers"),
                 readInt(maxWorkers, "Maximum workers"),
-                readInt(queueCapacity, "Waiting queue capacity"),
+                readInt(queueCapacity, "Formatting queue capacity"),
+                readInt(timeoutMs, "Default request timeout"),
+                readInt(queueTimeoutMs, "Maximum queue wait"),
+                readInt(httpQueueCapacity, "HTTP queue capacity"),
+                readInt(scaleThreshold, "Scale-up threshold"),
             )
-            server.configure(selected, limits)
+            server.configure(selected, limits, enteredKey().takeUnless { it == savedKey })
         } catch (error: IOException) {
             throw ConfigurationException(error.localizedMessage ?: "Could not start the MCP server", displayName)
         } catch (error: IllegalArgumentException) {
             throw ConfigurationException(error.localizedMessage ?: "Invalid MCP server configuration", displayName)
         }
-        updateStatus()
+        reset()
     }
+
+    private fun enteredKey() = accessKey?.password?.concatToString().orEmpty()
 
     private fun readInt(field: JTextField?, label: String): Int =
         requireNotNull(field?.text?.trim()?.toIntOrNull()) { "$label must be a whole number." }
 
     override fun reset() {
         val state = settings
+        val limits = state.workerLimits()
+        savedKey = server.accessKey().orEmpty()
+        accessKey?.text = savedKey
+        httpQueueCapacity?.text = limits.httpQueueCapacity.toString()
+        scaleThreshold?.text = limits.scaleThreshold.toString()
         enabled?.isSelected = state.enabled
         minWorkers?.text = state.minWorkers.toString()
         maxWorkers?.text = state.maxWorkers.toString()
         queueCapacity?.text = state.queueCapacity.toString()
+        timeoutMs?.text = state.timeoutMs.toString()
+        queueTimeoutMs?.text = state.queueTimeoutMs.toString()
         updateStatus()
     }
 
     override fun disposeUIResources() {
+        accessKey = null
+        savedKey = ""
+        httpQueueCapacity = null
+        scaleThreshold = null
         enabled = null
         status = null
         copy = null
@@ -155,6 +230,8 @@ class McpConfigurable : Configurable {
         minWorkers = null
         maxWorkers = null
         queueCapacity = null
+        timeoutMs = null
+        queueTimeoutMs = null
         activeLimits = null
     }
 

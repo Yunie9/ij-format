@@ -6,7 +6,7 @@
 
 - `idea-plugin/` 是 Kotlin IDEA 插件的 Gradle 项目，包含 Wrapper、构建配置和 Java 集成测试启动器。
 - `cli/` 是独立的 Go 模块，包含 `go.mod`、命令源码和单元测试。
-- `integration-tests/` 的 Python 脚本用真实 IDEA 验证插件 ZIP 和 CLI。
+- `integration-tests/` 的 Python 脚本覆盖真实 IDEA、CLI 和发布安装脚本。
 - `benchmarks/` 存放性能测试脚本，`docs/` 存放说明和发布文档。
 
 ## IDEA 插件
@@ -18,6 +18,8 @@
 ```
 
 Gradle 默认获取 IntelliJ IDEA 2026.1.1。用 `-PideaHome` 可指定本机 IDEA。报告写入 `idea-plugin/build/reports/pluginVerifier/`，安装包是 `idea-plugin/build/distributions/ij-format-mcp-<version>.zip`。
+
+Gradle 从 JitPack 获取固定版本的 elastic-thread-pool JAR。若要验证同版本的本地构建，在 elastic-thread-pool 仓库运行 `mvn install`，再给 Gradle 传入 `-PelasticThreadPoolRepository=/本地/Maven/仓库绝对路径`。 [elastic-thread-pool](https://github.com/Yunie9/elastic-thread-pool)
 
 ```sh
 ./idea-plugin/gradlew -p idea-plugin buildPlugin verifyPlugin \
@@ -48,9 +50,9 @@ GitHub Actions 在 Ubuntu、macOS、Windows 上检查 Go CLI，并在 Ubuntu 上
 
 更新 `idea-plugin/gradle.properties` 里的 `pluginVersion` 和中英文变更日志。CI 通过后，为该提交创建带说明的 `vMAJOR.MINOR.PATCH` 标签并推送。 [中文变更日志](CHANGELOG.md) · [英文变更日志](../CHANGELOG.md)
 
-Actions 使用英文变更日志创建 Release 草稿，附上验证通过的插件 ZIP、6 个 CLI ZIP（macOS、Linux 和 Windows 各有 `amd64` 和 `arm64`）及 `SHA256SUMS`。发布草稿前，下载插件和 CLI 联测。
+Actions 先用打包好的 Linux CLI 和插件验证安装脚本，再创建 Release 草稿。草稿包含通过验证的插件 ZIP、6 个 CLI ZIP（macOS、Linux 和 Windows 各有 `amd64` 和 `arm64`）、`install.sh`、`install.ps1` 和 `SHA256SUMS`。在 macOS 或 Linux 下载草稿附件后，可运行 `python3 integration-tests/test-installer.py --assets /附件目录 --version 版本号` 复测。正式发布后再验证公开下载地址和在线安装。
 
-如果 Release 已存在，工作流会在上传时停止。从这次运行下载 `idea-plugin` 和 `release-cli` 产物，为其中的 7 个 ZIP 生成 `SHA256SUMS`，再补传到已有的 Release。
+如果 Release 已存在，工作流会在上传时停止。从这次运行下载 `idea-plugin` 和 `release-cli` 产物，从标签取出两个安装脚本，为这 9 个文件生成 `SHA256SUMS`，再补传到已有的 Release。
 
 ## 问题报告
 

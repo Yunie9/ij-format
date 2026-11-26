@@ -262,6 +262,11 @@ def main():
             check_connection_errors(run_cli, config, workspace, java)
             check_exact_ranges(run_cli, config, workspace, args.exact_range)
             check_discovery(args.cli.resolve(), config, workspace, args.exact_range)
+            status = subprocess.check_output([args.cli.resolve(), "status", "--config", config])
+            if b"Request timeout: --timeout" in status:
+                result = run_cli(config, java, "--lines", "2:2", "--timeout", "3s")
+                assert result.stdout == JAVA_FORMATTED
+                print("PASS CLI request timeout override", flush=True)
         (state / "finish").touch()
         assert ide.wait(timeout=15) == 0
 

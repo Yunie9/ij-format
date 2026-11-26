@@ -6,7 +6,7 @@
 
 - `idea-plugin/` is the Gradle project for the Kotlin IDEA plugin. It contains its own Wrapper, build configuration, and Java integration test starter.
 - `cli/` is the Go module, with its own `go.mod`, command, and unit tests.
-- `integration-tests/` contains the Python runners that exercise the packaged plugin and CLI in IDEA.
+- `integration-tests/` contains the Python runners for IDEA, the CLI, and the release installer.
 - `benchmarks/` contains the performance runners for current and historical plugin builds.
 - `docs/` contains the CLI guide, contribution and release instructions, and other project documentation.
 
@@ -20,6 +20,8 @@ Use JDK 21 and the Wrapper in `idea-plugin/`. Run these commands from the reposi
 
 Gradle resolves IntelliJ IDEA 2026.1.1 by default. To use a local installation, pass `-PideaHome`. The reports are under `idea-plugin/build/reports/pluginVerifier/`.
 Install the resulting `ij-format-mcp-<version>.zip` from `idea-plugin/build/distributions/`.
+
+Gradle fetches the pinned elastic-thread-pool JAR from JitPack. To test the same version locally, run `mvn install` in the elastic-thread-pool repository and pass `-PelasticThreadPoolRepository=/absolute/path/to/maven/repository` to Gradle. [elastic-thread-pool](https://github.com/Yunie9/elastic-thread-pool)
 
 ```sh
 ./idea-plugin/gradlew -p idea-plugin buildPlugin verifyPlugin \
@@ -50,9 +52,9 @@ GitHub Actions runs Go checks on Ubuntu, macOS, and Windows, plus a Go 1.22 comp
 
 Set `pluginVersion` in `idea-plugin/gradle.properties` and update both changelogs. Once CI passes, push an annotated `vMAJOR.MINOR.PATCH` tag for that commit. [English changelog](CHANGELOG.md) · [Chinese changelog](zh-CN/CHANGELOG.md)
 
-Actions creates a Release draft from the English changelog and attaches the verified plugin ZIP, six CLI ZIPs (macOS, Linux, and Windows on `amd64` and `arm64`), and `SHA256SUMS`. Test the downloaded plugin and CLI together before publishing the draft.
+Actions checks the installer against the packaged Linux CLI and plugin before creating a Release draft. The draft includes the verified plugin ZIP, six CLI ZIPs (macOS, Linux, and Windows on `amd64` and `arm64`), `install.sh`, `install.ps1`, and `SHA256SUMS`. To repeat the installer check with downloaded draft assets on macOS or Linux, run `python3 integration-tests/test-installer.py --assets /path/to/assets --version VERSION`. After publishing, check the public downloads and run the installer against the release URL.
 
-If the Release already exists, the tag workflow stops at upload. Use the `idea-plugin` and `release-cli` artifacts from that run, generate `SHA256SUMS` for the seven ZIPs, and attach the files to the existing Release.
+If the Release already exists, the tag workflow stops at upload. Use the `idea-plugin` and `release-cli` artifacts from that run and both installers from the tag. Generate `SHA256SUMS` for those nine files and attach them to the existing Release.
 
 ## Reporting issues
 
