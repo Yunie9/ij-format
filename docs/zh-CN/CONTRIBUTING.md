@@ -52,7 +52,7 @@ GitHub Actions 在 Ubuntu、macOS、Windows 上检查 Go CLI，并在 Ubuntu 上
 
 Actions 先用打包好的 Linux CLI 和插件验证安装脚本，再创建 Release 草稿。草稿包含通过验证的插件 ZIP、6 个 CLI ZIP（macOS、Linux 和 Windows 各有 `amd64` 和 `arm64`）、`install.sh`、`install.ps1` 和 `SHA256SUMS`。在 macOS 或 Linux 下载草稿附件后，可运行 `python3 integration-tests/test-installer.py --assets /附件目录 --version 版本号` 复测。正式发布后再验证公开下载地址和在线安装。
 
-如果 Release 已存在，工作流会在上传时停止。从这次运行下载 `idea-plugin` 和 `release-cli` 产物，从标签取出两个安装脚本，为这 9 个文件生成 `SHA256SUMS`，再补传到已有的 Release。
+如果 Release 已存在，工作流会在上传时停止。从这次运行下载 `idea-plugin` 和 `release-cli` 产物，从标签取出两个安装脚本。将复制出的 `install.sh` 中的 `release_version` 设为去掉 `v` 前缀的标签版本。为这 9 个文件生成 `SHA256SUMS`，再补传到已有的 Release。
 
 ## 问题报告
 

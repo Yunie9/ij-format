@@ -54,7 +54,7 @@ Set `pluginVersion` in `idea-plugin/gradle.properties` and update both changelog
 
 Actions checks the installer against the packaged Linux CLI and plugin before creating a Release draft. The draft includes the verified plugin ZIP, six CLI ZIPs (macOS, Linux, and Windows on `amd64` and `arm64`), `install.sh`, `install.ps1`, and `SHA256SUMS`. To repeat the installer check with downloaded draft assets on macOS or Linux, run `python3 integration-tests/test-installer.py --assets /path/to/assets --version VERSION`. After publishing, check the public downloads and run the installer against the release URL.
 
-If the Release already exists, the tag workflow stops at upload. Use the `idea-plugin` and `release-cli` artifacts from that run and both installers from the tag. Generate `SHA256SUMS` for those nine files and attach them to the existing Release.
+If the Release already exists, the tag workflow stops at upload. Use the `idea-plugin` and `release-cli` artifacts from that run and both installers from the tag. Set `release_version` in the copied `install.sh` to the tag's version without the leading `v`. Generate `SHA256SUMS` for those nine files and attach them to the existing Release.
 
 ## Reporting issues
 

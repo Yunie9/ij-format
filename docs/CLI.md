@@ -6,21 +6,11 @@ The CLI sends UTF-8 source, language, and selection to the running IDEA plugin o
 
 ## Install the CLI
 
-Extract the ZIP for your OS and CPU and add the binary's directory to your `PATH`. The executable runs without Go, Python, or Gradle installed. [Installation and downloads](../README.md#quick-start)
-
-See the contribution guide to [build from source](CONTRIBUTING.md#go-cli).
-
-From v0.4.0, releases include `install.sh` for Unix shells and `install.ps1` for PowerShell 7. [Installation commands by platform](../README.md#installation-commands-by-platform)
-
-| Platform | Default CLI directory | Default IDEA 2026.1 plugin directory |
-| --- | --- | --- |
-| macOS | `~/.local/bin` | `~/Library/Application Support/JetBrains/IntelliJIdea2026.1/plugins` |
-| Linux | `~/.local/bin` | `${XDG_DATA_HOME:-~/.local/share}/JetBrains/IntelliJIdea2026.1` |
-| Windows | `%LOCALAPPDATA%\ij-format\bin` | `%APPDATA%\JetBrains\IntelliJIdea2026.1\plugins` |
-
-Add the CLI directory to your `PATH`. Pass a new version to upgrade or delete the binary to uninstall. Use the third argument for a custom absolute directory and quote paths with spaces. Quit IDEA before installing or upgrading the plugin.
+The released CLI runs as a standalone executable. [Install methods, paths, and upgrades](INSTALL.md#install-the-cli) · [Build from source](CONTRIBUTING.md#go-cli)
 
 ## First connection
+
+Install the ij-format plugin in IntelliJ IDEA. [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/36481-ij-format) · [Manual installation](INSTALL.md#install-the-idea-plugin)
 
 Start IDEA and check for **Running** in **Settings → Tools → ij-format**. Run `ij-format status` to verify the connection and see the negotiated MCP protocol and available ranges. It can run without a source file and does not print the token.
 

@@ -90,6 +90,20 @@ def test_installer(root, published_assets, version):
     assert not old_plugin.exists()
     print("PASS installer verifies checksums, preserves existing files on failure, and upgrades CLI and plugin")
 
+    # Redirect only the default destinations so the stdin path runs with zero arguments.
+    script = installer.read_text()
+    if not published_assets:
+        script = script.replace("release_version=''", f"release_version='{version}'", 1)
+    script = script.replace('destination:-"$HOME/.local/bin"', 'destination:-"$INSTALLER_TEST_CLI_DIR"')
+    script = script.replace('destination:-"$idea_plugins"', 'destination:-"$INSTALLER_TEST_PLUGIN_DIR"')
+    env.update(INSTALLER_TEST_CLI_DIR=str(root / "default CLI"),
+               INSTALLER_TEST_PLUGIN_DIR=str(root / "default plugins"))
+    result = subprocess.run(["bash"], input=script, env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result
+    assert (root / "default CLI/ij-format").read_bytes() == cli.read_bytes()
+    assert (root / "default plugins/ij-format-mcp/lib" / plugin_jar).is_file()
+    print("PASS release script piped to Bash installs both components with no arguments")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)

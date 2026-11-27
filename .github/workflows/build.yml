@@ -203,7 +203,8 @@ jobs:
             for archive in "${archives[@]}"; do
               unzip -tq "$archive"
             done
-            cp ../scripts/install.sh ../scripts/install.ps1 .
+            sed "s/^release_version=''/release_version='$version'/" ../scripts/install.sh > install.sh
+            cp ../scripts/install.ps1 .
             sha256sum "${archives[@]}" install.sh install.ps1 > SHA256SUMS
             sha256sum --check SHA256SUMS
           )

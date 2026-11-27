@@ -6,21 +6,11 @@ CLI 通过本地 Streamable HTTP 把 UTF-8 源码、语言和选区发送给运�
 
 ## 安装 CLI
 
-解压对应操作系统和 CPU 架构的 ZIP，将二进制所在目录加入 `PATH`。运行发布包无需安装 Go、Python 或 Gradle。 [安装与下载](README.md#安装并连接)
-
-如需从源码构建，见[贡献指南](CONTRIBUTING.md#go-cli)。
-
-从 v0.4.0 起，可从 Release 下载 Unix 脚本 `install.sh` 或 PowerShell 7 脚本 `install.ps1`。 [按平台区分的安装命令](README.md#各平台安装命令)
-
-| 平台 | CLI 默认目录 | IDEA 2026.1 默认插件目录 |
-| --- | --- | --- |
-| macOS | `~/.local/bin` | `~/Library/Application Support/JetBrains/IntelliJIdea2026.1/plugins` |
-| Linux | `~/.local/bin` | `${XDG_DATA_HOME:-~/.local/share}/JetBrains/IntelliJIdea2026.1` |
-| Windows | `%LOCALAPPDATA%\ij-format\bin` | `%APPDATA%\JetBrains\IntelliJIdea2026.1\plugins` |
-
-将 CLI 目录加入 `PATH`。升级时传入新版本号，卸载 CLI 时删除二进制。自定义目录可通过第三个参数指定，路径有空格时加引号。安装或升级插件前先退出 IDEA。
+发布版 CLI 可直接运行。 [安装方法、目录和升级](INSTALL.md#安装-cli) · [从源码构建](CONTRIBUTING.md#go-cli)
 
 ## 首次连接
+
+先在 IntelliJ IDEA 中安装 ij-format 插件。 [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/36481-ij-format) · [手动安装](INSTALL.md#安装-idea-插件)
 
 启动 IDEA，在 **Settings → Tools → ij-format** 确认状态为 **Running**。用 `ij-format status` 检查连接、MCP 协议版本和支持的范围类型。它无需源文件，输出不包含令牌。
 

@@ -1,39 +1,43 @@
 # ij-format
 
-Format Java and Kotlin ranges with the native formatter and active IDE-wide code style from a running IntelliJ IDEA instance. Use the CLI from a terminal or the local MCP tool from a coding agent. IDEA can stay on the Welcome screen.
+**ij-format is a Java and Kotlin formatter designed for incremental edits and coding agents.** It uses IntelliJ IDEA’s native formatter and active IDE-wide code style to format line or line-and-column ranges and keep Git diffs focused. Use the CLI from a terminal or a coding agent. Agents can also connect through MCP. IDEA can stay on the Welcome screen.
 
 [简体中文](docs/zh-CN/README.md)
 
 ## Why ij-format?
 
-For codebases already formatted in IDEA, targeted formatting keeps small edits in the existing style and limits the diff.
+For codebases already formatted in IDEA, range formatting preserves the existing style and keeps diffs focused. The tools we evaluated each had trade-offs for this workflow.
 
 - `ktlint --format` selects Kotlin files by path or glob and applies its own rules to the whole file. The output can differ from IDEA’s code style. [ktlint usage](https://github.com/ktlint/ktlint#usage)
 - `google-java-format` supports Java line ranges and character offsets. It applies Google Java Style, which can change indentation and wrapping in code formatted with IDEA. [google-java-format usage](https://github.com/google/google-java-format#using-the-formatter)
 - IDEA’s built-in `format` takes files or directories and requires other IDEA instances to be closed. It has no line or column selection. [IDEA command-line formatter](https://www.jetbrains.com/help/idea/command-line-formatter.html)
-- IDEA’s MCP `reformat_file` needs a path in an open project. Slow or stalled calls also interrupted our agent workflow. [IDEA MCP formatting tools](https://www.jetbrains.com/help/idea/mcp-server.html#formatting-tools)
+- IDEA’s MCP `reformat_file` needs a path in an open project. In our experience, slow or stalled calls frequently interrupt the agent’s workflow. [IDEA MCP formatting tools](https://www.jetbrains.com/help/idea/mcp-server.html#formatting-tools)
 
 ij-format takes source text and a line range or exact line-and-column selection. The plugin uses the active IDE-wide scheme and rejects changes outside the selection. The source project can stay closed. The CLI reuses the running IDEA instance and applies request deadlines. [Timeouts and container setup](docs/CLI.md)
 
 ## Quick start
 
-1. Download the plugin ZIP. In IDEA, select **Settings → Plugins → ⚙ → Install Plugin from Disk**, choose the ZIP, and restart if prompted. Verified on IDEA 2026.1.1 (build `IU-261.23567.138`). Enable Kotlin support to format Kotlin. [Download the plugin ZIP](https://github.com/Yunie9/ij-format/releases/latest) · [IDEA installation help](https://www.jetbrains.com/help/idea/managing-plugins.html#install_plugin_from_disk)
-2. Check for **Running** in **Settings → Tools → ij-format**.
-3. Install the CLI using the commands below, or extract the ZIP for your OS and CPU and add the binary’s directory to your `PATH`.
+**Use the CLI** for terminal and coding-agent workflows. The IDEA plugin provides the formatter and also supports a direct MCP connection.
 
-4. For an MCP client, click **Copy MCP JSON** and use the copied `mcpServers.ij-format` entry. To connect manually over Streamable HTTP, use the entry's `url` and `headers.Authorization`.
+Quit IDEA and run the command for your platform to install the plugin and CLI. Reopen IDEA and run `ij-format status`. [Component installation, Marketplace, and MCP setup](docs/INSTALL.md)
 
-### Installation commands by platform
+**macOS and Linux**
 
-Download the script from the same v0.4.0 or later release. Quit IDEA before running the plugin command and start it again afterward. For manual installation, use the same `ij-format-mcp-<version>.zip` on every platform. [Release assets](https://github.com/Yunie9/ij-format/releases/latest)
+```sh
+curl -fsSL https://github.com/Yunie9/ij-format/releases/download/v0.4.0/install.sh |
+  bash -c 's=$(cat); [[ $s ]] || exit 1; for c in plugin cli; do bash -s -- "$c" 0.4.0 <<< "$s" || exit; done'
+```
 
-| Platform | Install the CLI | Install the IDEA plugin |
-| --- | --- | --- |
-| macOS | `sh install.sh cli 0.4.0` | `sh install.sh plugin 0.4.0` |
-| Linux | `sh install.sh cli 0.4.0` | `sh install.sh plugin 0.4.0` |
-| Windows (PowerShell 7) | `pwsh -NoProfile -File .\install.ps1 cli 0.4.0` | `pwsh -NoProfile -File .\install.ps1 plugin 0.4.0` |
+**Windows (PowerShell 7)**
 
-The installers select the CLI ZIP for the host and verify its SHA-256 checksum. For manual downloads, select `darwin`, `linux`, or `windows`, then `amd64` for Intel/AMD or `arm64` for ARM. Pass an absolute directory as the third argument to override the default. [Install locations and upgrades](docs/CLI.md#install-the-cli)
+```powershell
+$source = curl.exe -fsSL https://github.com/Yunie9/ij-format/releases/download/v0.4.0/install.ps1
+if ($LASTEXITCODE -ne 0 -or !$source) { throw 'Installer download failed' }
+$install = [scriptblock]::Create($source -join "`n")
+& $install plugin 0.4.0; if ($?) { & $install cli 0.4.0 }
+```
+
+[Install PowerShell 7 with WinGet](docs/INSTALL.md#windows) · [Verify the installation and find the install directories](docs/INSTALL.md#verify-the-connection)
 
 ### Install with a coding agent
 
@@ -41,9 +45,10 @@ Copy this prompt into an agent that can run commands on the machine where IDEA i
 
 ```text
 Install or upgrade the ij-format plugin and CLI on this machine.
-Use the latest stable release at https://github.com/Yunie9/ij-format/releases/latest
-and follow the installation instructions at https://github.com/Yunie9/ij-format#quick-start.
-Use matching release assets for my OS and CPU. Check which IntelliJ IDEA
+Follow https://github.com/Yunie9/ij-format/blob/main/docs/INSTALL.md.
+Install the plugin from https://plugins.jetbrains.com/plugin/36481-ij-format
+or use the plugin ZIP from https://github.com/Yunie9/ij-format/releases/latest.
+Get the CLI for my OS and CPU from that GitHub release. Check which IntelliJ IDEA
 installation and profile I use. If IDEA needs to close, let me save my work first.
 After installation, run ij-format status and test line-range formatting on
 temporary Java and Kotlin samples. Report the version, installation paths, and
