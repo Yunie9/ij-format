@@ -103,7 +103,7 @@ class McpConfigurable : Configurable {
     private val settings get() = service<McpSettings>().state
     private val server get() = service<LocalMcpServer>()
 
-    override fun getDisplayName() = "ij-format"
+    override fun getDisplayName() = "IJ-format"
 
     override fun createComponent(): JComponent = panel {
         row {

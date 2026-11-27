@@ -15,7 +15,7 @@ func TestConnectionFileFormats(t *testing.T) {
 		{"plugin file", entry, ""},
 		{"copied MCP JSON", `{"mcpServers":{"other":{"headers":[]},"ij-format":` + entry + `}}`, ""},
 		{"invalid JSON", `{"mcpServers":`, "invalid JSON"},
-		{"wrong server", `{"mcpServers":{"other":` + entry + `}}`, "missing a valid ij-format Bearer token"},
+		{"wrong server", `{"mcpServers":{"other":` + entry + `}}`, "missing a valid IJ-format Bearer token"},
 		{"invalid named entry", `{"mcpServers":{"ij-format":[]}}`, "invalid mcpServers.ij-format entry"},
 		{"remote address", strings.Replace(entry, "127.0.0.1", "remote.invalid", 1), "must point to http://127.0.0.1:<port>/mcp"},
 	}

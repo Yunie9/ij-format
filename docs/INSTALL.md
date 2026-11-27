@@ -4,25 +4,28 @@
 
 Install the IDEA plugin and CLI for the recommended terminal and coding-agent workflow. The plugin also exposes MCP. The plugin was verified on IDEA 2026.1.1. Enable Kotlin support to format Kotlin.
 
+For individual script installs, download `install.sh` or `install.ps1` from the release you want and pass its version. [Release assets](https://github.com/Yunie9/ij-format/releases/latest)
+
 ## Install the IDEA plugin
 
-- **Marketplace** — In IDEA, open **Settings → Plugins → Marketplace**, search for **ij-format**, and click **Install**. Restart if prompted. [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/36481-ij-format)
+- **Marketplace** — In IDEA, open **Settings → Plugins → Marketplace**, search for **IJ-format**, and click **Install**. Restart if prompted. [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/36481-ij-format)
 - **Plugin ZIP** — Download `ij-format-mcp-<version>.zip` and select **Settings → Plugins → ⚙ → Install Plugin from Disk**. The same ZIP works on all platforms. [GitHub Release downloads](https://github.com/Yunie9/ij-format/releases/latest)
-- **Script** — Quit IDEA before running the `plugin` command below, then reopen it. If you use a custom IDEA profile, pass its absolute plugins directory as the third argument.
+- **Script** — Quit IDEA, run `sh install.sh plugin 0.4.0` or `.\install.ps1 plugin 0.4.0` on Windows, then reopen IDEA. If you use a custom IDEA profile, pass its absolute plugins directory as the third argument.
 
 ## Install the CLI
 
 - **CLI ZIP** — Choose `darwin`, `linux`, or `windows`, then `amd64` for Intel/AMD or `arm64` for ARM. Extract the ZIP and add the executable's directory to your `PATH`. [GitHub Release downloads](https://github.com/Yunie9/ij-format/releases/latest)
-- **Script** — Run the `cli` command below. The script selects the ZIP and checks its SHA-256 checksum. Add the install directory to your `PATH`.
+- **Script** — Run `sh install.sh cli 0.4.0` or `.\install.ps1 cli 0.4.0` on Windows. The script selects the ZIP and checks its SHA-256 checksum. Add the install directory to your `PATH`.
+
+## Install both from GitHub Releases
+
+Quit IDEA, run the command for your platform, then reopen IDEA.
 
 ### macOS and Linux
 
-Download the installer, then run the command for the component you want. To upgrade, download and pass the newer version. [GitHub Releases](https://github.com/Yunie9/ij-format/releases)
-
 ```sh
-curl -fsSLo install.sh https://github.com/Yunie9/ij-format/releases/download/v0.4.0/install.sh
-sh install.sh plugin 0.4.0  # IDEA plugin
-sh install.sh cli 0.4.0     # CLI
+curl -fsSL https://github.com/Yunie9/ij-format/releases/download/v0.4.0/install.sh |
+  bash -c 's=$(cat); [[ $s ]] || exit 1; for c in plugin cli; do bash -s -- "$c" 0.4.0 <<< "$s" || exit; done'
 ```
 
 ### Windows
@@ -33,13 +36,13 @@ If PowerShell 7 is missing, install it with WinGet and open a new PowerShell 7 w
 winget install --id Microsoft.PowerShell --exact --source winget
 ```
 
-In PowerShell 7, download the installer and run the command for the component you want.
+Run the following in PowerShell 7.
 
 ```powershell
-Invoke-WebRequest https://github.com/Yunie9/ij-format/releases/download/v0.4.0/install.ps1 -OutFile install.ps1 -ErrorAction Stop
-Unblock-File -LiteralPath .\install.ps1
-.\install.ps1 plugin 0.4.0  # IDEA plugin
-.\install.ps1 cli 0.4.0     # CLI
+$source = curl.exe -fsSL https://github.com/Yunie9/ij-format/releases/download/v0.4.0/install.ps1
+if ($LASTEXITCODE -ne 0 -or !$source) { throw 'Installer download failed' }
+$install = [scriptblock]::Create($source -join "`n")
+& $install plugin 0.4.0; if ($?) { & $install cli 0.4.0 }
 ```
 
 ### Default install directories
@@ -54,7 +57,7 @@ Pass an absolute directory as the script's third argument to change the destinat
 
 ## Verify the connection
 
-Open IDEA and check that **Settings → Tools → ij-format** shows **Running**.
+Open IDEA and check that **Settings → Tools → IJ-format** shows **Running**.
 
 - **CLI** — Run `ij-format status`. For multiple IDEA profiles or a custom profile, use **Copy CLI Config Path** and pass that path with `--config`. [CLI guide](CLI.md#first-connection)
 - **MCP** — Click **Copy MCP JSON** and add the `mcpServers.ij-format` entry to your agent's configuration. For manual Streamable HTTP configuration, use the copied `url` and `headers.Authorization`.

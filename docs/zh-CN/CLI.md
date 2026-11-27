@@ -1,4 +1,4 @@
-# ij-format CLI
+# IJ-format CLI
 
 [English](../CLI.md) · [文档首页](README.md)
 
@@ -10,9 +10,9 @@ CLI 通过本地 Streamable HTTP 把 UTF-8 源码、语言和选区发送给运�
 
 ## 首次连接
 
-先在 IntelliJ IDEA 中安装 ij-format 插件。 [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/36481-ij-format) · [手动安装](INSTALL.md#安装-idea-插件)
+先在 IntelliJ IDEA 中安装 IJ-format 插件。 [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/36481-ij-format) · [手动安装](INSTALL.md#安装-idea-插件)
 
-启动 IDEA，在 **Settings → Tools → ij-format** 确认状态为 **Running**。用 `ij-format status` 检查连接、MCP 协议版本和支持的范围类型。它无需源文件，输出不包含令牌。
+启动 IDEA，在 **Settings → Tools → IJ-format** 确认状态为 **Running**。用 `ij-format status` 检查连接、MCP 协议版本和支持的范围类型。它无需源文件，输出不包含令牌。
 
 标准 IDEA 配置目录恰好匹配一份配置时，CLI 会自动使用它。如果找到多个配置或你使用自定义目录，点击 **Copy CLI Config Path**，在每次调用时通过 `--config` 指定。也可以传入从 **Copy MCP JSON** 保存的文件。两种文件都包含本机 Bearer 令牌。
 
@@ -29,7 +29,7 @@ printf 'class Demo {\n  val n=1\n}\n' | ij-format --config "$config" - --languag
 
 对已有文件，用 `--lines` 或 `--range` 格式化改动的范围。用 `--write` 写回，或按需用 `--diff` 预览。
 
-用 `--timeout 3s` 覆盖单份输入的请求时限，支持 1 毫秒到 2 分钟。默认 15 秒，包含等待 HTTP 执行器及 IDEA 格式化的时间。服务繁忙或超时返回退出码 `2`。IDEA 的 **Settings → Tools → ij-format** 可调整默认时限和最大在途请求数。
+用 `--timeout 3s` 覆盖单份输入的请求时限，支持 1 毫秒到 2 分钟。默认 15 秒，包含等待 HTTP 执行器及 IDEA 格式化的时间。服务繁忙或超时返回退出码 `2`。IDEA 的 **Settings → Tools → IJ-format** 可调整默认时限和最大在途请求数。
 
 ```sh
 ij-format Foo.java --lines 12:38

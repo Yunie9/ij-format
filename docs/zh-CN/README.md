@@ -1,10 +1,10 @@
-# ij-format
+# IJ-format
 
 [English](../../README.md)
 
-**ij-format 是一款为增量修改和 Coding Agent 设计的 Java / Kotlin 格式化工具。** 它使用 IntelliJ IDEA 的原生格式化引擎，按行或精确到列处理指定范围，沿用当前 IDEA 的全局代码风格，减少无关的 Git diff。推荐在终端或 Coding Agent 中使用 CLI，也支持通过 MCP 直接调用。IDEA 停在欢迎页也能使用。
+**IJ-format 是一款为增量修改和 Coding Agent 设计的 Java / Kotlin 格式化工具。** 它使用 IntelliJ IDEA 的原生格式化引擎，按行或精确到列处理指定范围，沿用当前 IDEA 的全局代码风格，减少无关的 Git diff。推荐在终端或 Coding Agent 中使用 CLI，也支持通过 MCP 直接调用。IDEA 停在欢迎页也能使用。
 
-## 为什么 ij-format？
+## 为什么 IJ-format？
 
 对已经按 IDEA 风格格式化的存量代码，局部格式化可以沿用原有风格，减少无关 diff。我们调研过很多已有的 java/kotlin 代码格式化工具，都无法完美满足这个目标：
 
@@ -13,19 +13,30 @@
 - IDEA 自带的 `format` 命令以文件或目录为单位，无法指定行列范围，并要求关闭正在运行的 IDEA 实例。 [IDEA 命令行格式化](https://www.jetbrains.com/help/idea/command-line-formatter.html)
 - IDEA 自带 MCP 的 `reformat_file` 要求先打开文件所在项目。实际使用时，响应速度和稳定性问题较为突出，会频繁打断 Agent 的编辑流程。 [IDEA MCP 格式化工具](https://www.jetbrains.com/help/idea/mcp-server.html#formatting-tools)
 
-ij-format 接收源码和选区，支持整行和精确行列范围。插件使用 IDEA 的全局风格，拒绝越出选区的改动。源码所属项目无需打开。CLI 复用运行中的 IDEA，并限制请求等待时间。 [超时与容器接入](CLI.md)
+IJ-format 接收源码和选区，支持整行和精确行列范围。插件使用 IDEA 的全局风格，拒绝越出选区的改动。源码所属项目无需打开。CLI 复用运行中的 IDEA，并限制请求等待时间。 [超时与容器接入](CLI.md)
 
 ## 安装并连接
 
-**推荐使用 CLI**，终端和 Coding Agent 都可以调用。IDEA 插件提供格式化服务，也支持 MCP 客户端直连。
+**IJ-format** 由 IDEA 插件和 CLI 组成。**推荐使用 CLI**，终端和 Coding Agent 都可以调用。IDEA 插件提供格式化服务，也支持 MCP 客户端直连。
 
-退出 IDEA，复制对应平台的命令安装插件和 CLI。重新打开 IDEA 后，运行 `ij-format status` 检查连接。 [单独安装、Marketplace 和 MCP 连接](INSTALL.md)
+### 插件安装
+
+**推荐从 JetBrains Marketplace 安装插件。** 点击下方按钮前往插件市场安装。
+
+[![从 JetBrains Marketplace 安装](../assets/marketplace-install.svg)](https://plugins.jetbrains.com/plugin/36481-ij-format)
+
+也可以在 IDEA 的 **Settings → Plugins → Marketplace** 搜索并安装 **IJ-format**。
+
+[其他插件安装方式](INSTALL.md#安装-idea-插件)
+
+### CLI 安装
+
+**推荐用下方命令安装 CLI**。 [从 GitHub 同时安装插件和 CLI](INSTALL.md#从-github-同时安装插件和-cli)
 
 **macOS 和 Linux**
 
 ```sh
-curl -fsSL https://github.com/Yunie9/ij-format/releases/download/v0.4.0/install.sh |
-  bash -c 's=$(cat); [[ $s ]] || exit 1; for c in plugin cli; do bash -s -- "$c" 0.4.0 <<< "$s" || exit; done'
+curl -fsSL https://github.com/Yunie9/ij-format/releases/download/v0.4.0/install.sh | bash -s -- cli 0.4.0
 ```
 
 **Windows（PowerShell 7）**
@@ -34,21 +45,25 @@ curl -fsSL https://github.com/Yunie9/ij-format/releases/download/v0.4.0/install.
 $source = curl.exe -fsSL https://github.com/Yunie9/ij-format/releases/download/v0.4.0/install.ps1
 if ($LASTEXITCODE -ne 0 -or !$source) { throw 'Installer download failed' }
 $install = [scriptblock]::Create($source -join "`n")
-& $install plugin 0.4.0; if ($?) { & $install cli 0.4.0 }
+& $install cli 0.4.0
 ```
 
 [用 WinGet 安装 PowerShell 7](INSTALL.md#windows) · [检查连接与安装目录](INSTALL.md#检查连接)
+
+### 检查连接
+
+插件和 CLI 安装完毕后，重启 IDEA，用 `ij-format status` 检查连接。 [CLI 安装与 MCP 配置](INSTALL.md)
 
 ### 让 Coding Agent 安装
 
 把下面的提示词复制给能在 IDEA 所在机器上执行命令的 Agent。
 
 ```text
-帮我在这台机器上安装或升级 ij-format 的 IDEA 插件和 CLI。
+帮我在这台机器上安装或升级 IJ-format 的 IDEA 插件和 CLI。
 按 https://github.com/Yunie9/ij-format/blob/main/docs/zh-CN/INSTALL.md 操作。
-插件可从 https://plugins.jetbrains.com/plugin/36481-ij-format 安装，
-也可使用 https://github.com/Yunie9/ij-format/releases/latest 的插件 ZIP。
-从同一 GitHub Release 页面下载适合我操作系统和 CPU 的 CLI，并确认我使用的 IDEA 版本和配置目录。
+优先从 https://plugins.jetbrains.com/plugin/36481-ij-format 安装插件。
+从 https://github.com/Yunie9/ij-format/releases/latest 下载适合我操作系统和 CPU 的 CLI。
+如需手动安装插件，使用同一 GitHub Release 页面的插件 ZIP。请确认我使用的 IDEA 版本和配置目录。
 需要退出 IDEA 时，请先让我保存工作。
 安装后运行 ij-format status，再用临时 Java 和 Kotlin 样例各测一次行范围格式化。
 告诉我安装版本、安装位置和验收结果，并为 MCP 鉴权密钥保密。
@@ -104,7 +119,7 @@ CLI 指南介绍了范围规则、退出码和如何用 `--config` 选择 IDEA �
 
 默认地址为 `http://127.0.0.1:49273/mcp`。多个 IDEA 实例可分别在 VM options 设置端口，例如 `-Dijformat.mcp.port=49274`。复制的 JSON 含访问令牌，开发容器接入需显式启用。 [隐私和本地数据](PRIVACY.md) · [容器接入](CLI.md#docker-开发容器实验性)
 
-在 **Settings → Tools → ij-format** 调整以下参数。点击 **Apply** 生效，已接收的任务保留各自的时限。
+在 **Settings → Tools → IJ-format** 调整以下参数。点击 **Apply** 生效，已接收的任务保留各自的时限。
 
 | 设置 | 默认值及含义 |
 | --- | --- |

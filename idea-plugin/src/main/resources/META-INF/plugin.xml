@@ -1,13 +1,13 @@
 <idea-plugin>
   <id>org.ijformat.mcp</id>
-  <name>ij-format</name>
-  <vendor>ij-format contributors</vendor>
+  <name>IJ-format</name>
+  <vendor>IJ-format contributors</vendor>
   <description><![CDATA[
     <p>Format selected lines of Java or Kotlin from an MCP client using IntelliJ IDEA's native formatter.</p>
     <ul>
       <li>Use the current IDE-wide code style, including while a project is open.</li>
       <li>Send a standalone source snippet and line range to the local <code>ij_format_lines</code> tool.</li>
-      <li>Manage the loopback server, configure worker and queue limits, and copy its connection JSON from Settings &gt; Tools &gt; ij-format.</li>
+      <li>Manage the loopback server, configure worker and queue limits, and copy its connection JSON from Settings &gt; Tools &gt; IJ-format.</li>
     </ul>
   ]]></description>
   <change-notes><![CDATA[
@@ -20,7 +20,7 @@
   </applicationListeners>
   <extensions defaultExtensionNs="com.intellij">
     <postStartupActivity implementation="org.ijformat.mcp.ProjectMcpStartup"/>
-    <applicationConfigurable parentId="tools" id="org.ijformat.mcp.settings" displayName="ij-format"
+    <applicationConfigurable parentId="tools" id="org.ijformat.mcp.settings" displayName="IJ-format"
                              instance="org.ijformat.mcp.McpConfigurable"/>
   </extensions>
 </idea-plugin>

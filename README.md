@@ -1,10 +1,10 @@
-# ij-format
+# IJ-format
 
-**ij-format is a Java and Kotlin formatter designed for incremental edits and coding agents.** It uses IntelliJ IDEA’s native formatter and active IDE-wide code style to format line or line-and-column ranges and keep Git diffs focused. Use the CLI from a terminal or a coding agent. Agents can also connect through MCP. IDEA can stay on the Welcome screen.
+**IJ-format is a Java and Kotlin formatter designed for incremental edits and coding agents.** It uses IntelliJ IDEA’s native formatter and active IDE-wide code style to format line or line-and-column ranges and keep Git diffs focused. Use the CLI from a terminal or a coding agent. Agents can also connect through MCP. IDEA can stay on the Welcome screen.
 
 [简体中文](docs/zh-CN/README.md)
 
-## Why ij-format?
+## Why IJ-format?
 
 For codebases already formatted in IDEA, range formatting preserves the existing style and keeps diffs focused. The tools we evaluated each had trade-offs for this workflow.
 
@@ -13,19 +13,28 @@ For codebases already formatted in IDEA, range formatting preserves the existing
 - IDEA’s built-in `format` takes files or directories and requires other IDEA instances to be closed. It has no line or column selection. [IDEA command-line formatter](https://www.jetbrains.com/help/idea/command-line-formatter.html)
 - IDEA’s MCP `reformat_file` needs a path in an open project. In our experience, slow or stalled calls frequently interrupt the agent’s workflow. [IDEA MCP formatting tools](https://www.jetbrains.com/help/idea/mcp-server.html#formatting-tools)
 
-ij-format takes source text and a line range or exact line-and-column selection. The plugin uses the active IDE-wide scheme and rejects changes outside the selection. The source project can stay closed. The CLI reuses the running IDEA instance and applies request deadlines. [Timeouts and container setup](docs/CLI.md)
+IJ-format takes source text and a line range or exact line-and-column selection. The plugin uses the active IDE-wide scheme and rejects changes outside the selection. The source project can stay closed. The CLI reuses the running IDEA instance and applies request deadlines. [Timeouts and container setup](docs/CLI.md)
 
 ## Quick start
 
-**Use the CLI** for terminal and coding-agent workflows. The IDEA plugin provides the formatter and also supports a direct MCP connection.
+**IJ-format** consists of an IDEA plugin and a CLI. We recommend the CLI for terminal and coding-agent workflows. The plugin provides the formatter and supports direct MCP connections.
 
-Quit IDEA and run the command for your platform to install the plugin and CLI. Reopen IDEA and run `ij-format status`. [Component installation, Marketplace, and MCP setup](docs/INSTALL.md)
+### Install the plugin
+
+**JetBrains Marketplace is the recommended way to install the plugin.**
+
+[![Get from Marketplace](docs/assets/marketplace-install.svg)](https://plugins.jetbrains.com/plugin/36481-ij-format)
+
+You can also search for **IJ-format** in **Settings → Plugins → Marketplace**. [Other plugin installation methods](docs/INSTALL.md#install-the-idea-plugin)
+
+### Install the CLI
+
+**Run the command for your platform to install the CLI.** [Install both components from GitHub Releases](docs/INSTALL.md#install-both-from-github-releases)
 
 **macOS and Linux**
 
 ```sh
-curl -fsSL https://github.com/Yunie9/ij-format/releases/download/v0.4.0/install.sh |
-  bash -c 's=$(cat); [[ $s ]] || exit 1; for c in plugin cli; do bash -s -- "$c" 0.4.0 <<< "$s" || exit; done'
+curl -fsSL https://github.com/Yunie9/ij-format/releases/download/v0.4.0/install.sh | bash -s -- cli 0.4.0
 ```
 
 **Windows (PowerShell 7)**
@@ -34,21 +43,25 @@ curl -fsSL https://github.com/Yunie9/ij-format/releases/download/v0.4.0/install.
 $source = curl.exe -fsSL https://github.com/Yunie9/ij-format/releases/download/v0.4.0/install.ps1
 if ($LASTEXITCODE -ne 0 -or !$source) { throw 'Installer download failed' }
 $install = [scriptblock]::Create($source -join "`n")
-& $install plugin 0.4.0; if ($?) { & $install cli 0.4.0 }
+& $install cli 0.4.0
 ```
 
 [Install PowerShell 7 with WinGet](docs/INSTALL.md#windows) · [Verify the installation and find the install directories](docs/INSTALL.md#verify-the-connection)
+
+### Verify the connection
+
+After installing the plugin and CLI, restart IDEA and run `ij-format status`. [CLI installation and MCP setup](docs/INSTALL.md)
 
 ### Install with a coding agent
 
 Copy this prompt into an agent that can run commands on the machine where IDEA is installed.
 
 ```text
-Install or upgrade the ij-format plugin and CLI on this machine.
+Install or upgrade the IJ-format plugin and CLI on this machine.
 Follow https://github.com/Yunie9/ij-format/blob/main/docs/INSTALL.md.
-Install the plugin from https://plugins.jetbrains.com/plugin/36481-ij-format
-or use the plugin ZIP from https://github.com/Yunie9/ij-format/releases/latest.
-Get the CLI for my OS and CPU from that GitHub release. Check which IntelliJ IDEA
+Prefer installing the plugin from https://plugins.jetbrains.com/plugin/36481-ij-format.
+Get the CLI for my OS and CPU from https://github.com/Yunie9/ij-format/releases/latest.
+That release also has the plugin ZIP for manual installation. Check which IntelliJ IDEA
 installation and profile I use. If IDEA needs to close, let me save my work first.
 After installation, run ij-format status and test line-range formatting on
 temporary Java and Kotlin samples. Report the version, installation paths, and
@@ -103,7 +116,7 @@ Call `ij_format_lines` with the full source, language, and selection.
 
 The default endpoint is `http://127.0.0.1:49273/mcp`. Set `-Dijformat.mcp.port=49274` in IDEA's VM options to use a different port. The copied JSON contains an access token. Developer container access is opt-in. [Privacy and local data](docs/PRIVACY.md) · [Container setup](docs/CLI.md#docker-development-containers-experimental)
 
-Open **Settings → Tools → ij-format** and click **Apply** to update the server. Accepted requests keep their deadlines.
+Open **Settings → Tools → IJ-format** and click **Apply** to update the server. Accepted requests keep their deadlines.
 
 | Setting | Default and behavior |
 | --- | --- |

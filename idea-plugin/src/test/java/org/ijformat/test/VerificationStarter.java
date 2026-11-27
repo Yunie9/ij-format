@@ -115,7 +115,7 @@ public final class VerificationStarter implements ApplicationStarter {
       System.out.println("TEST_MCP_EDT_HELD");
       waitUntil(() -> queuedFormats(configurable) >= 6, "accepted format requests");
       var panel = configurable.createComponent();
-      if (!"ij-format".equals(configurable.getDisplayName())) {
+      if (!"IJ-format".equals(configurable.getDisplayName())) {
         throw new IllegalStateException("Unexpected settings display name");
       }
       var keyField = component(panel, JPasswordField.class);

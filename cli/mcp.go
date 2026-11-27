@@ -32,7 +32,7 @@ type connectionSettings struct {
 	} `json:"headers"`
 }
 
-const settingsLocation = "Settings > Tools > ij-format"
+const settingsLocation = "Settings > Tools > IJ-format"
 
 func defaultConfig() (string, error) {
 	root, err := os.UserConfigDir()
@@ -105,7 +105,7 @@ func loadConfig(path string, container bool) (connectionSettings, error) {
 		}
 	}
 	if !bearerPattern.MatchString(settings.Headers.Authorization) {
-		return settings, fmt.Errorf("connection file %q is missing a valid ij-format Bearer token. Use the file or Copy MCP JSON from %s", path, settingsLocation)
+		return settings, fmt.Errorf("connection file %q is missing a valid IJ-format Bearer token. Use the file or Copy MCP JSON from %s", path, settingsLocation)
 	}
 	host := "127.0.0.1"
 	if container {

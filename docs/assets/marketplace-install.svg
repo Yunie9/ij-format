@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="245" height="48" viewBox="0 0 245 48" role="img" aria-labelledby="title">
+  <title id="title">Get from Marketplace</title>
+  <defs>
+    <clipPath id="button">
+      <rect width="245" height="48" rx="24"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#button)">
+    <rect width="245" height="48" fill="#000"/>
+    <path d="M190 0h55v48h-101z" fill="#ff6b00"/>
+    <path d="M190 0h55v24z" fill="#ff1854"/>
+    <path d="M245 24v24h-56z" fill="#ff3030"/>
+  </g>
+  <text x="122.5" y="29.5" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="15">Get from Marketplace</text>
+</svg>

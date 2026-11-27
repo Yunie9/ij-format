@@ -1,4 +1,4 @@
-# ij-format CLI
+# IJ-format CLI
 
 [简体中文](zh-CN/CLI.md) · [Documentation](../README.md)
 
@@ -10,9 +10,9 @@ The released CLI runs as a standalone executable. [Install methods, paths, and u
 
 ## First connection
 
-Install the ij-format plugin in IntelliJ IDEA. [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/36481-ij-format) · [Manual installation](INSTALL.md#install-the-idea-plugin)
+Install the IJ-format plugin in IntelliJ IDEA. [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/36481-ij-format) · [Manual installation](INSTALL.md#install-the-idea-plugin)
 
-Start IDEA and check for **Running** in **Settings → Tools → ij-format**. Run `ij-format status` to verify the connection and see the negotiated MCP protocol and available ranges. It can run without a source file and does not print the token.
+Start IDEA and check for **Running** in **Settings → Tools → IJ-format**. Run `ij-format status` to verify the connection and see the negotiated MCP protocol and available ranges. It can run without a source file and does not print the token.
 
 The CLI automatically uses the connection file when exactly one standard IDEA profile matches. For multiple profiles or a custom profile, click **Copy CLI Config Path** and pass the path to each CLI invocation with `--config`. The option also accepts a file saved from **Copy MCP JSON**. Both files contain a local Bearer token.
 
@@ -22,14 +22,14 @@ ij-format status --config "$config"
 printf 'class Demo {\n  val n=1\n}\n' | ij-format --config "$config" - --language kotlin --lines 2:2
 ```
 
-- If connection discovery fails or the server is unreachable, check that the plugin is enabled under **Settings → Plugins → Installed** and that **Settings → Tools → ij-format** shows **Running**.
+- If connection discovery fails or the server is unreachable, check that the plugin is enabled under **Settings → Plugins → Installed** and that **Settings → Tools → IJ-format** shows **Running**.
 - If authentication fails, use the current config path or copy the current MCP JSON from the IDEA instance you want to use.
 
 ## Format source
 
 For an existing file, use `--lines` or `--range` to format the edited section. Add `--write` to apply the changes or use `--diff` to preview them.
 
-Use `--timeout 3s` to override the deadline for each input. The range is 1 ms to 2 minutes. The plugin defaults to 15 seconds, including waiting for an HTTP worker and IDEA formatting. A busy server or timeout returns exit code `2`. Change the default deadline and in-flight limit in **Settings → Tools → ij-format**.
+Use `--timeout 3s` to override the deadline for each input. The range is 1 ms to 2 minutes. The plugin defaults to 15 seconds, including waiting for an HTTP worker and IDEA formatting. A busy server or timeout returns exit code `2`. Change the default deadline and in-flight limit in **Settings → Tools → IJ-format**.
 
 ```sh
 ij-format Foo.java --lines 12:38

@@ -6,6 +6,6 @@
 
 本地端点和令牌保存在当前 IDEA 配置目录的 `ij-format-mcp.json` 中。如果文件系统支持 POSIX 权限，插件会用 `0600` 权限写入。**Copy MCP JSON** 会把令牌复制到剪贴板。**Copy CLI Config Path** 只复制路径。请妥善保管令牌和保存的 MCP JSON。
 
-服务开关、工作线程数和队列容量保存在 IDEA 应用设置中。IDE 日志记录服务启动、错误、本地端点和配置路径。要停止服务，在 **Settings → Tools → ij-format** 取消勾选 **Enable MCP server**，然后点击 **Apply**。
+服务开关、工作线程数和队列容量保存在 IDEA 应用设置中。IDE 日志记录服务启动、错误、本地端点和配置路径。要停止服务，在 **Settings → Tools → IJ-format** 取消勾选 **Enable MCP server**，然后点击 **Apply**。
 
 Go CLI 读取指定文件或标准输入，把源码发送到配置的端点。只有指定 `--write` 时才会写回。启用容器接入后，源码和令牌通过开发网络上的 HTTP 传输。只向可信的本机开发容器提供只读的配置副本。

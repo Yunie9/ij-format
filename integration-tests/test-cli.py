@@ -171,7 +171,7 @@ def check_discovery(cli, config, workspace, exact):
         assert token not in response.stdout + response.stderr
         return response
 
-    assert b"Settings > Tools > ij-format" in status(code=2).stderr
+    assert b"Settings > Tools > IJ-format" in status(code=2).stderr
     parent = workspace / "Library/Application Support/JetBrains"
     instance = parent / "IntelliJIdea2026.1/ij-format-mcp.json"
     instance.parent.mkdir(parents=True)

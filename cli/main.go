@@ -46,7 +46,7 @@ Input and connection:
   --timeout DURATION         Override the server format timeout per input (e.g. 3s).
   --container                Allow host.docker.internal with an explicit --config.
   -h, --help                 Show this help.
-  Start IDEA and enable the server under Settings > Tools > ij-format.
+  Start IDEA and enable the server under Settings > Tools > IJ-format.
   Input must be UTF-8 and at most 128 KiB per file or stdin stream.
 
 Examples:
